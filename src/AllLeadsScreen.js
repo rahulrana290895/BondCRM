@@ -1,5 +1,4 @@
-
-import React, {useState} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -10,217 +9,295 @@ import {
   StatusBar,
   Alert,
   Linking,
+  ActivityIndicator,
+  Modal,
 } from 'react-native';
 
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-
-const initialLeads = [
-  {
-    id: '1',
-    name: 'Amit Sharma',
-    company: 'ABC Technologies',
-    phone: '9876543210',
-    email: 'amit@example.com',
-    service: 'Website Development',
-    stage: 'New Lead',
-    value: '25000',
-    date: '08 Nov 2026',
-    priority: 'High',
-  },
-  {
-    id: '2',
-    name: 'Rahul Verma',
-    company: 'Verma Enterprises',
-    phone: '9876543211',
-    email: 'rahul@example.com',
-    service: 'App Development',
-    stage: 'Contacted',
-    value: '50000',
-    date: '09 Nov 2026',
-    priority: 'Medium',
-  },
-  {
-    id: '3',
-    name: 'Priya Singh',
-    company: 'PS Solutions',
-    phone: '9876543212',
-    email: 'priya@example.com',
-    service: 'Digital Marketing',
-    stage: 'Interested',
-    value: '15000',
-    date: '10 Nov 2026',
-    priority: 'High',
-  },
-  {
-    id: '4',
-    name: 'Vikash Kumar',
-    company: 'VK Industries',
-    phone: '9876543213',
-    email: 'vikash@example.com',
-    service: 'CRM Software',
-    stage: 'Won',
-    value: '75000',
-    date: '11 Nov 2026',
-    priority: 'Low',
-  },
-  {
-    id: '5',
-    name: 'Neha Gupta',
-    company: 'NG Enterprises',
-    phone: '9876543214',
-    email: 'neha@example.com',
-    service: 'E-Commerce Website',
-    stage: 'Lost',
-    value: '35000',
-    date: '12 Nov 2026',
-    priority: 'Medium',
-  },
-];
-
-const filters = [
-  'All',
-  'New Lead',
-  'Contacted',
-  'Interested',
-  'Won',
-  'Lost',
-];
-
-const stageColors = {
-  'New Lead': '#3979ED',
-  Contacted: '#8B5CF6',
-  Interested: '#D99420',
-  Qualified: '#0C9CA8',
-  'Meeting': '#D94C99',
-  Negotiation: '#E67B28',
-  Won: '#129968',
-  Lost: '#E34B58',
-};
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {BASE_URL} from './config/config';
 
 export default function AllLeadsScreen({navigation}) {
-
-  const [leads, setLeads] = useState(initialLeads);
+  const [leads, setLeads] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [activeTab, setActiveTab] = useState('ALL');
   const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState('All');
-  const [selectedLead, setSelectedLead] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const totalLeads = leads.length;
-  const newLeads = leads.filter(item => item.stage === 'New Lead').length;
-  const wonLeads = leads.filter(item => item.stage === 'Won').length;
+  // Stage modal states
+  const [stageModalVisible, setStageModalVisible] = useState(false);
+  const [selectedLeadForStage, setSelectedLeadForStage] = useState(null);
+  const [updatingStage, setUpdatingStage] = useState(false);
 
+  // FETCH LEADS AND CATEGORIES
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      const companyId = await AsyncStorage.getItem('company_id');
+
+      if (!companyId) {
+        throw new Error('Company ID not found. Please login again.');
+      }
+
+      const [leadResponse, categoryResponse] = await Promise.all([
+        fetch(`${BASE_URL}/leads.php`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            action: 'list',
+            company_id: companyId,
+          }),
+        }),
+
+        fetch(`${BASE_URL}/get_pipeline_categories.php`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            company_id: companyId,
+          }),
+        }),
+      ]);
+
+      const leadResult = await leadResponse.json();
+      const categoryResult = await categoryResponse.json();
+
+      if (!leadResult.success) {
+        throw new Error(leadResult.message || 'Unable to load leads');
+      }
+
+      if (!categoryResult.success) {
+        throw new Error(categoryResult.message || 'Unable to load categories');
+      }
+
+      setLeads(leadResult.data || []);
+
+      // GLOBAL + COMPANY CATEGORIES
+      const allCategories = categoryResult.data || [];
+
+      // Global company_id 0 first, then company categories
+      allCategories.sort((a, b) => {
+        const companyCompare =
+          Number(a.company_id) - Number(b.company_id);
+
+        return companyCompare || Number(a.id) - Number(b.id);
+      });
+
+      setCategories(allCategories);
+
+    } catch (error) {
+      console.log('All Leads Error:', error);
+      Alert.alert('Error', error.message || 'Server connection failed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+
+    const unsubscribe = navigation?.addListener('focus', fetchData);
+
+    return unsubscribe;
+  }, [navigation, fetchData]);
+
+  // GET STAGE NAME
+  const getStageName = item => {
+    const category = categories.find(
+      c => String(c.id) === String(item.pipeline_stage),
+    );
+
+    return item.stage_name || category?.name || 'Unknown';
+  };
+
+  // FILTER LEADS
   const filteredLeads = leads.filter(item => {
+    const matchesTab =
+      activeTab === 'ALL' ||
+      String(item.pipeline_stage) === String(activeTab);
 
-    const searchText = search.toLowerCase();
+    const q = search.toLowerCase();
 
-    const matchSearch =
-      item.name.toLowerCase().includes(searchText) ||
-      item.company.toLowerCase().includes(searchText) ||
-      item.phone.includes(search) ||
-      item.service.toLowerCase().includes(searchText);
+    const matchesSearch = [
+      item.name,
+      item.number,
+      item.whatsapp,
+      item.interested_in_name,
+      item.note,
+      getStageName(item),
+    ].some(value =>
+      String(value || '').toLowerCase().includes(q),
+    );
 
-    const matchFilter =
-      activeFilter === 'All' || item.stage === activeFilter;
-
-    return matchSearch && matchFilter;
+    return matchesTab && matchesSearch;
   });
 
-  const formatPrice = value =>
-    '₹' + Number(value || 0).toLocaleString('en-IN');
+  // CATEGORY COUNT
+  const getCategoryCount = category =>
+    leads.filter(
+      item => String(item.pipeline_stage) === String(category.id),
+    ).length;
 
-  const getStageColor = stage =>
-    stageColors[stage] || '#81718F';
+  // SUMMARY
+  const newLeads = leads.filter(
+    item => getStageName(item).toLowerCase() === 'new leads',
+  ).length;
 
-  const callLead = phone => {
-    Linking.openURL(`tel:${phone}`).catch(() => {
-      Alert.alert('Error', 'Unable to open phone dialer.');
-    });
+  const wonLeads = leads.filter(item =>
+    ['win', 'won'].includes(getStageName(item).toLowerCase()),
+  ).length;
+
+  // DATE FORMAT
+  const formatDate = value => {
+    if (!value) return '-';
+
+    const parts = String(value).split('-');
+
+    return parts.length === 3
+      ? `${parts[2]}/${parts[1]}/${parts[0]}`
+      : value;
   };
 
+  // STAGE COLOR
+  const getStageColor = name => {
+    const stage = String(name || '').toLowerCase();
+
+    if (stage.includes('new')) return '#3979ED';
+    if (stage.includes('follow')) return '#8B5CF6';
+    if (stage === 'win' || stage === 'won') return '#129968';
+    if (stage === 'loss' || stage === 'lost') return '#E34B58';
+
+    return '#81718F';
+  };
+
+  // CALL
+  const callLead = number => {
+    if (!number) {
+      return Alert.alert('Error', 'Number not available');
+    }
+
+    Linking.openURL(`tel:${number}`).catch(() =>
+      Alert.alert('Error', 'Unable to open phone dialer'),
+    );
+  };
+
+  // WHATSAPP
+  const whatsappLead = number => {
+    if (!number) {
+      return Alert.alert('Error', 'Number not available');
+    }
+
+    const cleanNumber = String(number).replace(/[^0-9]/g, '');
+
+    Linking.openURL(`https://wa.me/${cleanNumber}`).catch(() =>
+      Alert.alert('Error', 'Unable to open WhatsApp'),
+    );
+  };
+
+  // DETAILS
   const openLeadDetails = item => {
-    setSelectedLead(item);
-    navigation?.navigate('LeadDetail', {lead: item});
+    navigation.navigate('LeadDetail', {lead: item});
   };
 
+  // EDIT
   const editLead = item => {
-    navigation?.navigate('AddLead', {
+    navigation.navigate('AddLead', {
       lead: item,
       isEdit: true,
     });
   };
 
+  // OPEN SELECT STAGE POPUP
   const changeStage = item => {
-    const options = [
-      'New Lead',
-      'Contacted',
-      'Interested',
-      'Qualified',
-      'Meeting',
-      'Negotiation',
-      'Won',
-      'Lost',
-    ];
+    if (!categories.length) {
+      return Alert.alert('Error', 'No pipeline categories found');
+    }
 
-    Alert.alert(
-      'Change Pipeline Stage',
-      `Select stage for ${item.name}`,
-      [
-        ...options.map(stage => ({
-          text: stage,
-          onPress: () => {
-            setLeads(previous =>
-              previous.map(lead =>
-                lead.id === item.id
-                  ? {...lead, stage}
-                  : lead
-              )
-            );
-          },
-        })),
-        {text: 'Cancel', style: 'cancel'},
-      ]
-    );
+    setSelectedLeadForStage(item);
+    setStageModalVisible(true);
   };
 
+  // UPDATE LEAD STAGE
+  const updateLeadStage = async category => {
+    if (!selectedLeadForStage || updatingStage) return;
+
+    try {
+      setUpdatingStage(true);
+
+      const companyId = await AsyncStorage.getItem('company_id');
+
+      const response = await fetch(`${BASE_URL}/leads.php`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action: 'update_stage',
+          id: selectedLeadForStage.id,
+          company_id: companyId,
+          pipeline_stage: category.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setStageModalVisible(false);
+        setSelectedLeadForStage(null);
+
+        await fetchData();
+
+        Alert.alert('Success', 'Pipeline stage updated successfully');
+      } else {
+        Alert.alert('Error', result.message || 'Stage update failed');
+      }
+    } catch (error) {
+      console.log('Update Stage Error:', error);
+      Alert.alert('Error', 'Unable to update stage');
+    } finally {
+      setUpdatingStage(false);
+    }
+  };
+
+  // SUMMARY CARD
   const renderSummary = (title, count, icon, color, bg) => (
     <View style={[styles.summaryCard, {backgroundColor: bg}]}>
-
       <View style={[styles.summaryIcon, {backgroundColor: color + '20'}]}>
         <Ionicons name={icon} size={22} color={color} />
       </View>
 
       <Text style={styles.summaryNumber}>{count}</Text>
       <Text style={styles.summaryTitle}>{title}</Text>
-
     </View>
   );
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+  const activeCategory = categories.find(
+    c => String(c.id) === String(activeTab),
+  );
 
-      <StatusBar
-        backgroundColor="#6422C9"
-        barStyle="light-content"
-      />
+  return (
+    <SafeAreaView style={styles.container}   edges={['top']}>
+      <StatusBar backgroundColor="#6422C9" barStyle="light-content" />
 
       {/* HEADER */}
       <LinearGradient colors={['#8739EB', '#5018B9']} style={styles.header}>
         <TouchableOpacity onPress={() => navigation?.goBack()}>
           <Ionicons name="arrow-back" size={25} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>All Leads</Text>
-        <View style={{width: 25}} />
-      </LinearGradient>
 
+        <Text style={styles.headerTitle}>All Leads</Text>
+
+        <TouchableOpacity onPress={fetchData}>
+          <Ionicons name="refresh" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+      </LinearGradient>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}>
 
-        {/* PAGE HEADING */}
+        {/* HEADING */}
         <View style={styles.headingSection}>
-
           <View>
             <Text style={styles.heading}>Manage Your Leads</Text>
             <Text style={styles.subHeading}>
@@ -230,30 +307,24 @@ export default function AllLeadsScreen({navigation}) {
 
           <TouchableOpacity
             style={styles.addButton}
-            onPress={() => navigation?.navigate('AddLead')}>
-
+            onPress={() => navigation.navigate('AddLead')}>
             <LinearGradient
               colors={['#8739EB', '#5719C1']}
               style={styles.addGradient}>
-
               <Ionicons name="add" size={23} color="#FFFFFF" />
               <Text style={styles.addText}>Add Lead</Text>
-
             </LinearGradient>
-
           </TouchableOpacity>
-
         </View>
 
-        {/* SUMMARY CARDS */}
+        {/* SUMMARY */}
         <View style={styles.summaryRow}>
-
           {renderSummary(
             'Total Leads',
-            totalLeads,
+            leads.length,
             'people',
             '#3979ED',
-            '#EAF0FF'
+            '#EAF0FF',
           )}
 
           {renderSummary(
@@ -261,97 +332,151 @@ export default function AllLeadsScreen({navigation}) {
             newLeads,
             'person-add',
             '#D99420',
-            '#FFF5E3'
+            '#FFF5E3',
           )}
 
           {renderSummary(
-            'Converted',
+            'Won',
             wonLeads,
             'checkmark-circle',
             '#129968',
-            '#E3F8EF'
+            '#E3F8EF',
           )}
-
         </View>
 
         {/* SEARCH */}
         <View style={styles.searchBox}>
-
           <Ionicons name="search-outline" size={22} color="#81758F" />
 
           <TextInput
             style={styles.searchInput}
-            placeholder="Search name, company or mobile..."
+            placeholder="Search name, number or interested in..."
             placeholderTextColor="#9992A5"
             value={search}
             onChangeText={setSearch}
           />
 
-          {search.length > 0 && (
+          {!!search && (
             <TouchableOpacity onPress={() => setSearch('')}>
               <Ionicons name="close-circle" size={20} color="#999" />
             </TouchableOpacity>
           )}
-
         </View>
 
-        {/* FILTERS */}
-        <View style={styles.filterHeading}>
-          <Text style={styles.filterTitle}>Lead Pipeline</Text>
-
-          <Text style={styles.filterCount}>
-            {filteredLeads.length} Leads
-          </Text>
-        </View>
-
+        {/* ALL + GLOBAL + COMPANY TABS */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.filterScroll}
           contentContainerStyle={styles.filterContainer}>
 
-          {filters.map(item => {
+          {/* ALL TAB */}
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              activeTab === 'ALL' && styles.activeFilter,
+            ]}
+            onPress={() => setActiveTab('ALL')}>
 
-            const selected = activeFilter === item;
+            <Text
+              style={[
+                styles.filterText,
+                activeTab === 'ALL' && styles.activeFilterText,
+              ]}>
+              ALL
+            </Text>
+
+            <Text
+              style={[
+                styles.filterCount,
+                activeTab === 'ALL' && styles.activeFilterText,
+              ]}>
+              {leads.length}
+            </Text>
+          </TouchableOpacity>
+
+          {/* DATABASE CATEGORIES */}
+          {categories.map(category => {
+            const selected = String(activeTab) === String(category.id);
+            const color = getStageColor(category.name);
+            const isGlobal = Number(category.company_id) === 0;
 
             return (
               <TouchableOpacity
-                key={item}
+                key={String(category.id)}
                 style={[
                   styles.filterButton,
-                  selected && styles.activeFilter,
+                  selected && {
+                    backgroundColor: color,
+                    borderColor: color,
+                  },
                 ]}
-                onPress={() => setActiveFilter(item)}>
+                onPress={() => setActiveTab(String(category.id))}>
 
                 <Text
                   style={[
                     styles.filterText,
                     selected && styles.activeFilterText,
                   ]}>
-                  {item}
+                  {category.name}
                 </Text>
 
-                {item === 'All' && (
-                  <Text
-                    style={[
-                      styles.filterCountBadge,
-                      selected && styles.activeFilterText,
-                    ]}>
-                    {totalLeads}
-                  </Text>
-                )}
+                <Text
+                  style={[
+                    styles.filterCountBadge,
+                    selected && styles.activeFilterText,
+                  ]}>
+                  {getCategoryCount(category)}
+                </Text>
 
+                {!selected && (
+                  <View
+                    style={[
+                      styles.categoryDot,
+                      {
+                        backgroundColor: isGlobal
+                          ? '#3979ED'
+                          : '#D99420',
+                      },
+                    ]}
+                  />
+                )}
               </TouchableOpacity>
             );
           })}
-
         </ScrollView>
 
-        {/* LEADS LIST */}
+        {/* ACTIVE TAB HEADING */}
+        <View style={styles.filterHeading}>
+          <Text style={styles.filterTitle}>
+            {activeTab === 'ALL'
+              ? 'All Leads'
+              : activeCategory?.name || 'Leads'}
+          </Text>
+
+          <Text style={styles.filterCount}>
+            {filteredLeads.length} Leads
+          </Text>
+        </View>
+
+        {/* LEADS */}
         <View style={styles.leadsContainer}>
-
-          {filteredLeads.length === 0 ? (
-
+          {loading ? (
+            <ActivityIndicator
+              size="large"
+              color="#6425CC"
+              style={{marginTop: 35}}
+            />
+          ) : categories.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="git-branch-outline"
+                size={50}
+                color="#BBA9DD"
+              />
+              <Text style={styles.emptyTitle}>No Categories Found</Text>
+            </View>
+          ) : filteredLeads.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons
                 name="people-outline"
@@ -362,282 +487,327 @@ export default function AllLeadsScreen({navigation}) {
               <Text style={styles.emptyTitle}>No Leads Found</Text>
 
               <Text style={styles.emptySubtitle}>
-                Try changing your search or add a new lead.
+                No leads available in this category.
               </Text>
 
               <TouchableOpacity
                 style={styles.emptyAddButton}
-                onPress={() => navigation?.navigate('AddLead')}>
-
+                onPress={() => navigation.navigate('AddLead')}>
                 <Text style={styles.emptyAddText}>+ Add New Lead</Text>
-
               </TouchableOpacity>
             </View>
-
           ) : (
+            filteredLeads.map(item => {
+              const stage = getStageName(item);
+              const color = getStageColor(stage);
 
-            filteredLeads.map((item, index) => (
+              return (
+                <View key={String(item.id)} style={styles.leadCard}>
 
-              <View
-                key={item.id}
-                style={[
-                  styles.leadCard,
-                  index === filteredLeads.length - 1 && {
-                    marginBottom: 0,
-                  },
-                ]}>
+                  {/* LEAD HEADER */}
+                  <View style={styles.cardTop}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>
+                        {(item.name || 'L').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
 
-                {/* CARD TOP */}
-                <View style={styles.cardTop}>
+                    <View style={styles.leadInfo}>
+                      <Text style={styles.leadName}>{item.name}</Text>
 
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {item.name.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
+                      <Text style={styles.companyName}>
+                        Lead #{item.id} · {formatDate(item.date)}
+                      </Text>
+                    </View>
 
-                  <View style={styles.leadInfo}>
-
-                    <Text style={styles.leadName}>
-                      {item.name}
-                    </Text>
-
-                    <Text style={styles.companyName}>
-                      {item.company}
-                    </Text>
-
-                  </View>
-
-                  <View
-                    style={[
-                      styles.stageBadge,
-                      {
-                        backgroundColor: getStageColor(item.stage) + '18',
-                      },
-                    ]}>
-
-                    <Text
-                      style={[
-                        styles.stageText,
-                        {color: getStageColor(item.stage)},
-                      ]}>
-                      {item.stage}
-                    </Text>
-
-                  </View>
-
-                </View>
-
-                <View style={styles.cardDivider} />
-
-                {/* CONTACT DETAILS */}
-                <View style={styles.detailsRow}>
-
-                  <View style={styles.detailItem}>
-                    <Ionicons
-                      name="call-outline"
-                      size={15}
-                      color="#82758F"
-                    />
-                    <Text style={styles.detailText}>
-                      {item.phone}
-                    </Text>
-                  </View>
-
-                  <View style={styles.detailItem}>
-                    <Ionicons
-                      name="calendar-outline"
-                      size={15}
-                      color="#82758F"
-                    />
-                    <Text style={styles.detailText}>
-                      {item.date}
-                    </Text>
-                  </View>
-
-                </View>
-
-                <View style={styles.detailsRow}>
-
-                  <View style={styles.detailItem}>
-                    <Ionicons
-                      name="briefcase-outline"
-                      size={15}
-                      color="#82758F"
-                    />
-                    <Text style={styles.detailText} numberOfLines={1}>
-                      {item.service}
-                    </Text>
-                  </View>
-
-                </View>
-
-                {/* VALUE + PRIORITY */}
-                <View style={styles.valueRow}>
-
-                  <View>
-                    <Text style={styles.valueLabel}>Lead Value</Text>
-                    <Text style={styles.valueText}>
-                      {formatPrice(item.value)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.priorityContainer}>
                     <View
                       style={[
-                        styles.priorityDot,
-                        {
-                          backgroundColor:
-                            item.priority === 'High'
-                              ? '#E44B55'
-                              : item.priority === 'Medium'
-                              ? '#E5A126'
-                              : '#159968',
-                        },
-                      ]}
-                    />
-
-                    <Text style={styles.priorityText}>
-                      {item.priority} Priority
-                    </Text>
+                        styles.stageBadge,
+                        {backgroundColor: color + '18'},
+                      ]}>
+                      <Text style={[styles.stageText, {color}]}>
+                        {stage}
+                      </Text>
+                    </View>
                   </View>
 
+                  <View style={styles.cardDivider} />
+
+                  {/* PHONE */}
+                  <View style={styles.detailsRow}>
+                    <View style={styles.detailItem}>
+                      <Ionicons
+                        name="call-outline"
+                        size={15}
+                        color="#82758F"
+                      />
+
+                      <Text style={styles.detailText}>
+                        {item.number || '-'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.detailItem}>
+                      <Ionicons
+                        name="logo-whatsapp"
+                        size={15}
+                        color="#159968"
+                      />
+
+                      <Text style={styles.detailText}>
+                        {item.whatsapp || '-'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* INTERESTED AND PRIORITY */}
+                  <View style={styles.detailsRow}>
+                    <View style={styles.detailItem}>
+                      <Ionicons
+                        name="briefcase-outline"
+                        size={15}
+                        color="#82758F"
+                      />
+
+                      <Text style={styles.detailText} numberOfLines={1}>
+                        {item.interested_in_name || 'N/A'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.priorityContainer}>
+                      <View
+                        style={[
+                          styles.priorityDot,
+                          {
+                            backgroundColor:
+                              item.priority === 'High'
+                                ? '#E44B55'
+                                : item.priority === 'Medium'
+                                ? '#E5A126'
+                                : '#159968',
+                          },
+                        ]}
+                      />
+
+                      <Text style={styles.priorityText}>
+                        {item.priority || 'Medium'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* NOTE */}
+                  {!!item.note && (
+                    <View style={styles.noteBox}>
+                      <Text style={styles.noteLabel}>Note</Text>
+                      <Text style={styles.noteText}>{item.note}</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.cardDivider} />
+
+                  {/* ACTIONS */}
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => callLead(item.number)}>
+                      <Ionicons
+                        name="call-outline"
+                        size={17}
+                        color="#129968"
+                      />
+                      <Text style={[styles.actionText, {color: '#129968'}]}>
+                        Call
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() =>
+                        whatsappLead(item.whatsapp || item.number)
+                      }>
+                      <Ionicons
+                        name="logo-whatsapp"
+                        size={17}
+                        color="#159968"
+                      />
+                      <Text style={[styles.actionText, {color: '#159968'}]}>
+                        WhatsApp
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => editLead(item)}>
+                      <Ionicons
+                        name="create-outline"
+                        size={17}
+                        color="#6425CC"
+                      />
+                      <Text style={[styles.actionText, {color: '#6425CC'}]}>
+                        Edit
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => openLeadDetails(item)}>
+                      <Ionicons
+                        name="eye-outline"
+                        size={18}
+                        color="#3979ED"
+                      />
+                      <Text style={[styles.actionText, {color: '#3979ED'}]}>
+                        Details
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.stageAction}
+                      onPress={() => changeStage(item)}>
+                      <Ionicons
+                        name="git-branch-outline"
+                        size={17}
+                        color="#D28A19"
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-
-                <View style={styles.cardDivider} />
-
-                {/* ACTIONS */}
-                <View style={styles.actionRow}>
-
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => callLead(item.phone)}>
-
-                    <Ionicons
-                      name="call-outline"
-                      size={17}
-                      color="#129968"
-                    />
-
-                    <Text style={[styles.actionText, {color: '#129968'}]}>
-                      Call
-                    </Text>
-
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => editLead(item)}>
-
-                    <Ionicons
-                      name="create-outline"
-                      size={17}
-                      color="#6425CC"
-                    />
-
-                    <Text style={[styles.actionText, {color: '#6425CC'}]}>
-                      Edit
-                    </Text>
-
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => openLeadDetails(item)}>
-
-                    <Ionicons
-                      name="eye-outline"
-                      size={18}
-                      color="#3979ED"
-                    />
-
-                    <Text style={[styles.actionText, {color: '#3979ED'}]}>
-                      Details
-                    </Text>
-
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.stageAction}
-                    onPress={() => changeStage(item)}>
-
-                    <Ionicons
-                      name="git-branch-outline"
-                      size={17}
-                      color="#D28A19"
-                    />
-
-                  </TouchableOpacity>
-
-                </View>
-
-              </View>
-
-            ))
+              );
+            })
           )}
-
         </View>
-
-        {/* BUILDING ILLUSTRATION */}
 
       </ScrollView>
 
-      {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNavigation}>
+      {/* SELECT PIPELINE STAGE MODAL */}
+      <Modal
+        visible={stageModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setStageModalVisible(false)}>
 
-        {[
-          {name: 'Dashboard', icon: 'home-outline', route: 'Dashboard'},
-          {name: 'All Leads', icon: 'people-outline', route: 'AllLeads'},
-          {name: 'Add Lead', icon: 'add', route: 'AddLead'},
-          {name: 'Pipeline', icon: 'git-branch-outline', route: 'LeadPipeline'},
-          {name: 'Follow Up', icon: 'calendar-outline', route: 'FollowUp'},
-        ].map((item, index) => (
+        <View style={styles.stageModalOverlay}>
+          <View style={styles.stageModalContainer}>
 
-          <TouchableOpacity
-            key={item.name}
-            style={styles.navItem}
-            onPress={() => navigation?.navigate(item.route)}>
+            <View style={styles.stageModalHeader}>
+              <View>
+                <Text style={styles.stageModalTitle}>Select Stage</Text>
 
-            {index === 2 ? (
-              <LinearGradient
-                colors={['#8739EB', '#5719C1']}
-                style={styles.addNavButton}>
-                <Ionicons name="add" size={29} color="#FFFFFF" />
-              </LinearGradient>
-            ) : (
-              <Ionicons
-                name={item.icon}
-                size={22}
-                color={item.name === 'All Leads' ? '#6825CB' : '#817A90'}
-              />
+                <Text style={styles.stageModalSubtitle}>
+                  {selectedLeadForStage?.name ||
+                    'Select lead pipeline stage'}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setStageModalVisible(false)}
+                style={styles.stageCloseButton}
+                disabled={updatingStage}>
+                <Ionicons name="close" size={23} color="#625775" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.stageList}
+              showsVerticalScrollIndicator={true}>
+
+              {categories.map(category => {
+                const selected =
+                  String(selectedLeadForStage?.pipeline_stage) ===
+                  String(category.id);
+
+                const color = getStageColor(category.name);
+
+                return (
+                  <TouchableOpacity
+                    key={String(category.id)}
+                    style={[
+                      styles.stageOption,
+                      selected && {
+                        backgroundColor: color + '15',
+                        borderColor: color,
+                      },
+                    ]}
+                    disabled={updatingStage}
+                    onPress={() => updateLeadStage(category)}>
+
+                    <View style={styles.stageOptionLeft}>
+                      <View
+                        style={[
+                          styles.stageOptionDot,
+                          {backgroundColor: color},
+                        ]}
+                      />
+
+                      <View>
+                        <Text
+                          style={[
+                            styles.stageOptionText,
+                            selected && {color},
+                          ]}>
+                          {category.name}
+                        </Text>
+
+                        <Text style={styles.stageOptionType}>
+                          {Number(category.company_id) === 0
+                            ? 'Global Stage'
+                            : 'Company Stage'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {selected && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={21}
+                        color={color}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {updatingStage && (
+              <View style={styles.stageLoading}>
+                <ActivityIndicator
+                  size="small"
+                  color="#6425CC"
+                />
+
+                <Text style={styles.stageLoadingText}>
+                  Updating stage...
+                </Text>
+              </View>
             )}
 
-            <Text
-              style={[
-                styles.navText,
-                item.name === 'All Leads' && styles.activeNavText,
-              ]}>
-              {item.name}
-            </Text>
+            <TouchableOpacity
+              style={styles.stageCancelButton}
+              onPress={() => setStageModalVisible(false)}
+              disabled={updatingStage}>
+              <Text style={styles.stageCancelText}>Cancel</Text>
+            </TouchableOpacity>
 
-          </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
-        ))}
-
-      </View>
+      {/* BOTTOM NAVIGATION */}
 
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+// ==========================================
+// STYLES
+// ==========================================
 
+const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9F6FF',
   },
 
-  // HEADER
   header: {
     height: 62,
     paddingHorizontal: 17,
@@ -646,30 +816,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
 
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 15,
-  },
-
   headerTitle: {
     color: '#FFFFFF',
     fontSize: 19,
     fontWeight: '800',
-  },
-
-  headerNotification: {
-    position: 'relative',
-  },
-
-  notificationDot: {
-    position: 'absolute',
-    right: 1,
-    top: 1,
-    width: 8,
-    height: 8,
-    borderRadius: 5,
-    backgroundColor: '#FFCB45',
   },
 
   scrollContent: {
@@ -678,7 +828,6 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
 
-  // HEADING
   headingSection: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -719,7 +868,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  // SUMMARY
   summaryRow: {
     flexDirection: 'row',
     gap: 9,
@@ -757,7 +905,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // SEARCH
   searchBox: {
     height: 51,
     backgroundColor: '#FFFFFF',
@@ -778,7 +925,50 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
 
-  // FILTERS
+  filterScroll: {
+    marginBottom: 16,
+  },
+
+  filterContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 10,
+  },
+
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E4DDEE',
+  },
+
+  filterText: {
+    fontSize: 11,
+    color: '#6C637C',
+    fontWeight: '700',
+  },
+
+  activeFilterText: {
+    color: '#FFFFFF',
+  },
+
+  filterCountBadge: {
+    fontSize: 10,
+    color: '#6C637C',
+    fontWeight: '800',
+  },
+
+  categoryDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 5,
+  },
+
   filterHeading: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -797,48 +987,6 @@ const styles = StyleSheet.create({
     color: '#8A8298',
   },
 
-  filterScroll: {
-    marginBottom: 16,
-  },
-
-  filterContainer: {
-    gap: 8,
-    paddingRight: 10,
-  },
-
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E4DDEE',
-  },
-
-  activeFilter: {
-    backgroundColor: '#6425CC',
-    borderColor: '#6425CC',
-  },
-
-  filterText: {
-    fontSize: 10,
-    color: '#6C637C',
-    fontWeight: '700',
-  },
-
-  activeFilterText: {
-    color: '#FFFFFF',
-  },
-
-  filterCountBadge: {
-    fontSize: 10,
-    color: '#6C637C',
-  },
-
-  // LEAD CARDS
   leadsContainer: {
     gap: 13,
   },
@@ -847,11 +995,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 13,
+    marginBottom: 13,
     elevation: 2,
     shadowColor: '#62419A',
     shadowOpacity: 0.05,
     shadowRadius: 6,
-    shadowOffset: {width: 0, height: 3},
   },
 
   cardTop: {
@@ -908,7 +1056,6 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
 
-  // DETAILS
   detailsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -929,26 +1076,6 @@ const styles = StyleSheet.create({
     color: '#625775',
   },
 
-  // VALUE
-  valueRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-
-  valueLabel: {
-    fontSize: 9,
-    color: '#958BA3',
-  },
-
-  valueText: {
-    fontSize: 16,
-    color: '#6425CC',
-    fontWeight: '900',
-    marginTop: 3,
-  },
-
   priorityContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -967,7 +1094,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // ACTIONS
+  noteBox: {
+    backgroundColor: '#F8F5FC',
+    padding: 10,
+    borderRadius: 9,
+    marginTop: 2,
+  },
+
+  noteLabel: {
+    fontSize: 10,
+    color: '#6425CC',
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+
+  noteText: {
+    fontSize: 11,
+    color: '#625775',
+  },
+
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -978,7 +1123,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5,
+    gap: 4,
     paddingVertical: 5,
   },
 
@@ -996,7 +1141,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // EMPTY STATE
   emptyState: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -1032,75 +1176,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // BUILDING
-  buildingSection: {
-    height: 115,
-    marginHorizontal: -15,
-    marginTop: 22,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: '#F0E9FF',
-    overflow: 'hidden',
-  },
-
-  buildingGroup: {
-    width: '85%',
-    height: '95%',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 8,
-  },
-
-  buildingOne: {
-    width: '18%',
-    height: '60%',
-    backgroundColor: '#DCD0FC',
-    padding: 6,
-  },
-
-  buildingTwo: {
-    width: '23%',
-    height: '100%',
-    backgroundColor: '#CFC0FB',
-    padding: 8,
-  },
-
-  buildingThree: {
-    width: '20%',
-    height: '72%',
-    backgroundColor: '#DAD0FC',
-    padding: 7,
-  },
-
-  buildingFour: {
-    width: '17%',
-    height: '50%',
-    backgroundColor: '#E1D7FC',
-    padding: 6,
-  },
-
-  windows: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around',
-    gap: 7,
-  },
-
-  window: {
-    width: 8,
-    height: 9,
-    backgroundColor: '#F0E9FF',
-    borderRadius: 2,
-  },
-
-  groundLine: {
-    width: '100%',
-    height: 2,
-    backgroundColor: '#C8B7F1',
-  },
-
-  // BOTTOM NAVIGATION
   bottomNavigation: {
     height: 70,
     backgroundColor: '#FFFFFF',
@@ -1140,4 +1215,123 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 
+  activeFilter: {
+    backgroundColor: '#6C3FC5',
+    borderColor: '#6C3FC5',
+  },
+
+  // STAGE MODAL STYLES
+  stageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(20, 10, 35, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+
+  stageModalContainer: {
+    width: '100%',
+    maxHeight: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 17,
+  },
+
+  stageModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+
+  stageModalTitle: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: '#29174F',
+  },
+
+  stageModalSubtitle: {
+    fontSize: 11,
+    color: '#82758F',
+    marginTop: 4,
+  },
+
+  stageCloseButton: {
+    width: 35,
+    height: 35,
+    borderRadius: 20,
+    backgroundColor: '#F3EFF9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  stageList: {
+    maxHeight: 420,
+  },
+
+  stageOption: {
+    minHeight: 62,
+    borderWidth: 1,
+    borderColor: '#E9E2F2',
+    borderRadius: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    marginBottom: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+  },
+
+  stageOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+  },
+
+  stageOptionDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 10,
+  },
+
+  stageOptionText: {
+    fontSize: 13,
+    color: '#30234C',
+    fontWeight: '800',
+  },
+
+  stageOptionType: {
+    fontSize: 10,
+    color: '#9389A6',
+    marginTop: 3,
+  },
+
+  stageLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    padding: 10,
+  },
+
+  stageLoadingText: {
+    color: '#6425CC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  stageCancelButton: {
+    marginTop: 10,
+    padding: 13,
+    borderRadius: 11,
+    backgroundColor: '#F2ECFA',
+    alignItems: 'center',
+  },
+
+  stageCancelText: {
+    color: '#6425CC',
+    fontWeight: '800',
+    fontSize: 13,
+  },
 });

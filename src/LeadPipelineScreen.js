@@ -276,7 +276,7 @@ export default function LeadPipelineScreen({navigation}) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
       <StatusBar backgroundColor="#6425C8" barStyle="light-content" />
 
       <LinearGradient
@@ -289,12 +289,6 @@ export default function LeadPipelineScreen({navigation}) {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.notificationButton}
-          onPress={() => navigation.navigate('Notifications')}>
-          <Ionicons name="notifications-outline" size={23} color="#FFFFFF" />
-          <View style={styles.notificationDot} />
-        </TouchableOpacity>
       </LinearGradient>
 
       <ScrollView

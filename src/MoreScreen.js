@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -7,21 +7,34 @@ import {
   TouchableOpacity,
   StatusBar,
   Alert,
-  Image,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {BASE_URL} from './config/config';
+
+const API_URL = `${BASE_URL.replace(/\/+$/, '')}/more_company.php`;
 
 const menuItems = [
+  {
+    title: 'Profile',
+    subtitle: 'View & Edit Profile',
+    icon: 'person',
+    color: '#ff3456',
+    bg: '#ffeeee',
+    route: 'Profile',
+  },
   {
     title: 'Company Profile',
     subtitle: 'View & Edit Company Details',
     icon: 'business',
     color: '#7138D5',
     bg: '#F0E9FF',
-    route: 'CompanySetup',
+    route: 'CompanyProfile',
   },
   {
     title: 'Staff Management',
@@ -50,11 +63,119 @@ const menuItems = [
 ];
 
 export default function MoreScreen({navigation}) {
+  const [company, setCompany] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
+  // =====================================
+  // GET COMPANY ID
+  // =====================================
+  const getCompanyId = async () => {
+    let companyId = await AsyncStorage.getItem('company_id');
+
+    const possibleKeys = [
+      '@bondcrm_user',
+      'user',
+      'user_data',
+      'login_data',
+      'userData',
+    ];
+
+    for (const key of possibleKeys) {
+      const stored = await AsyncStorage.getItem(key);
+
+      if (!stored) {
+        continue;
+      }
+
+      try {
+        const user = JSON.parse(stored);
+
+        if (user && typeof user === 'object') {
+          companyId =
+            companyId ||
+            user.company_id ||
+            user.companyId ||
+            '';
+        }
+      } catch (error) {
+        console.log('Storage parse error:', error);
+      }
+    }
+
+    return String(companyId || '');
+  };
+
+  // =====================================
+  // LOAD COMPANY FROM BACKEND
+  // =====================================
+  const loadCompany = useCallback(async (showLoader = true) => {
+    if (showLoader) {
+      setLoading(true);
+    }
+
+    try {
+      const companyId = await getCompanyId();
+
+      if (!companyId) {
+        setCompany(null);
+        Alert.alert(
+          'Company ID Missing',
+          'Company ID AsyncStorage mein nahi mila. Login data check karein.',
+        );
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('action', 'get');
+      formData.append('company_id', companyId);
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || 'Company details load nahi ho payi.',
+        );
+      }
+
+      setCompany(result.data);
+    } catch (error) {
+      console.log('Company API Error:', error);
+
+      Alert.alert(
+        'Error',
+        error.message || 'Unable to load company details.',
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCompany();
+  }, [loadCompany]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadCompany(false);
+  };
+
+  // =====================================
+  // MENU NAVIGATION
+  // =====================================
   const handleMenu = route => {
     navigation?.navigate(route);
   };
 
+  // =====================================
+  // LOGOUT
+  // =====================================
   const handleLogout = () => {
     Alert.alert(
       'Logout',
@@ -67,8 +188,21 @@ export default function MoreScreen({navigation}) {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: () => {
-            // Logout API and token clearing will be added here
+          onPress: async () => {
+            try {
+              await AsyncStorage.multiRemove([
+                'isLoggedIn',
+                'company_id',
+                '@bondcrm_user',
+                'user',
+                'user_data',
+                'login_data',
+                'userData',
+              ]);
+            } catch (error) {
+              console.log('Logout storage error:', error);
+            }
+
             navigation?.reset({
               index: 0,
               routes: [{name: 'Login'}],
@@ -80,8 +214,7 @@ export default function MoreScreen({navigation}) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
       <StatusBar
         backgroundColor="#5520C6"
         barStyle="light-content"
@@ -108,68 +241,104 @@ export default function MoreScreen({navigation}) {
           <Text style={styles.headerTitle}>More</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={() => handleMenu('CompanySetup')}>
-          <Ionicons
-            name="person"
-            size={20}
-            color="#5C24C5"
-          />
-        </TouchableOpacity>
-
       </LinearGradient>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#702ACB']}
+          />
+        }>
 
-        {/* PROFILE CARD */}
+        {/* DYNAMIC COMPANY CARD */}
         <LinearGradient
           colors={['#7635DF', '#501BB9']}
           start={{x: 0, y: 0}}
           end={{x: 1, y: 1}}
           style={styles.profileCard}>
 
+          {/* COMPANY ICON - NO LOGO */}
           <View style={styles.profileLogo}>
-            <Image
-              source={require('./assets/logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
+            <Ionicons
+              name="business"
+              size={29}
+              color="#7138D5"
             />
           </View>
 
           <View style={styles.profileInfo}>
-            <Text style={styles.companyName}>
-              Your Company Name
-            </Text>
 
-            <Text style={styles.companyEmail}>
-              company@example.com
-            </Text>
+            {loading ? (
+              <View style={styles.companyLoading}>
+                <ActivityIndicator
+                  size="small"
+                  color="#FFFFFF"
+                />
+                <Text style={styles.companyEmail}>
+                  Loading company...
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Text
+                  style={styles.companyName}
+                  numberOfLines={2}>
+                  {company?.company_name || 'Company Name'}
+                </Text>
 
-            <View style={styles.accountBadge}>
-              <Ionicons
-                name="checkmark-circle"
-                size={13}
-                color="#FFFFFF"
-              />
-              <Text style={styles.accountBadgeText}>
-                Company Account
-              </Text>
-            </View>
+                <Text
+                  style={styles.companyEmail}
+                  numberOfLines={1}>
+                  {company?.email || 'Email not available'}
+                </Text>
+
+                {!!company?.city && (
+                  <View style={styles.cityRow}>
+                    <Ionicons
+                      name="location-outline"
+                      size={12}
+                      color="#E7D9FF"
+                    />
+                    <Text style={styles.companyCity}>
+                      {company.city}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.accountBadge}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={13}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.accountBadgeText}>
+                    Company Account
+                  </Text>
+                </View>
+              </>
+            )}
+
           </View>
 
-          <TouchableOpacity
-            onPress={() => handleMenu('CompanySetup')}>
-            <Ionicons
-              name="create-outline"
-              size={23}
-              color="#FFFFFF"
-            />
-          </TouchableOpacity>
 
         </LinearGradient>
+
+        {/* COMPANY ID */}
+        {!loading && company?.company_id && (
+          <View style={styles.companyIdRow}>
+            <Text style={styles.companyIdLabel}>
+              Company ID
+            </Text>
+
+            <Text style={styles.companyIdValue}>
+              #{company.company_id}
+            </Text>
+          </View>
+        )}
 
         {/* SECTION TITLE */}
         <View style={styles.sectionHeading}>
@@ -328,6 +497,9 @@ export default function MoreScreen({navigation}) {
   );
 }
 
+// =====================================
+// STYLES
+// =====================================
 const styles = StyleSheet.create({
 
   container: {
@@ -359,22 +531,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  profileButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 18,
     paddingBottom: 20,
   },
 
-  // PROFILE CARD
+  // COMPANY CARD
   profileCard: {
     borderRadius: 16,
     padding: 16,
@@ -390,11 +553,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  logo: {
-    width: 40,
-    height: 40,
   },
 
   profileInfo: {
@@ -414,6 +572,24 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
+  companyLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  cityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+  },
+
+  companyCity: {
+    color: '#E7D9FF',
+    fontSize: 10,
+  },
+
   accountBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -425,6 +601,24 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '600',
+  },
+
+  companyIdRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 9,
+    paddingHorizontal: 5,
+  },
+
+  companyIdLabel: {
+    color: '#8B829B',
+    fontSize: 10,
+  },
+
+  companyIdValue: {
+    color: '#702ACB',
+    fontSize: 10,
+    fontWeight: '800',
   },
 
   // SECTION
@@ -533,74 +727,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#B0A8BD',
     marginTop: 5,
-  },
-
-  // BUILDINGS
-  buildingSection: {
-    height: 90,
-    marginHorizontal: -16,
-    marginTop: 15,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: '#F0E9FF',
-    overflow: 'hidden',
-  },
-
-  buildingGroup: {
-    width: '85%',
-    height: '95%',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-
-  buildingOne: {
-    width: '18%',
-    height: '65%',
-    backgroundColor: '#DCD0FC',
-    padding: 7,
-  },
-
-  buildingTwo: {
-    width: '22%',
-    height: '100%',
-    backgroundColor: '#CFC0FB',
-    padding: 8,
-  },
-
-  buildingThree: {
-    width: '20%',
-    height: '72%',
-    backgroundColor: '#DAD0FC',
-    padding: 7,
-  },
-
-  buildingFour: {
-    width: '17%',
-    height: '50%',
-    backgroundColor: '#E1D7FC',
-    padding: 6,
-  },
-
-  windows: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around',
-    gap: 7,
-  },
-
-  window: {
-    width: 9,
-    height: 9,
-    backgroundColor: '#F0E9FF',
-    borderRadius: 2,
-  },
-
-  groundLine: {
-    width: '100%',
-    height: 2,
-    backgroundColor: '#C8B7F1',
   },
 
   // BOTTOM NAV

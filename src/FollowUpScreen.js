@@ -1,4 +1,3 @@
-
 import React, {useMemo, useState} from 'react';
 import {
   View,
@@ -260,7 +259,7 @@ export default function FollowUpScreen({navigation}) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
       <StatusBar backgroundColor="#6425C8" barStyle="light-content" />
 
       <LinearGradient

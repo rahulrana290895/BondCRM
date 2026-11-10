@@ -1,5 +1,4 @@
-
-import React, {useState} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -12,53 +11,20 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {BASE_URL} from './config/config';
 
-const initialStaff = [
-  {
-    id: '1',
-    name: 'Amit Kumar',
-    designation: 'Admin',
-    phone: '9876543210',
-    email: 'amit@example.com',
-    role: 'Admin',
-    active: true,
-  },
-  {
-    id: '2',
-    name: 'Priya Verma',
-    designation: 'Sales Executive',
-    phone: '9123456789',
-    email: 'priya@example.com',
-    role: 'Staff',
-    active: true,
-  },
-  {
-    id: '3',
-    name: 'Rahul Singh',
-    designation: 'Team Leader',
-    phone: '9876512345',
-    email: 'rahul@example.com',
-    role: 'Staff',
-    active: false,
-  },
-  {
-    id: '4',
-    name: 'Neha Sharma',
-    designation: 'Sales Executive',
-    phone: '9988766554',
-    email: 'neha@example.com',
-    role: 'Staff',
-    active: true,
-  },
-];
+const API_URL = `${BASE_URL.replace(/\/+$/, '')}/staff.php`;
 
 export default function StaffScreen({navigation}) {
-  const [staff, setStaff] = useState(initialStaff);
+  const [staff, setStaff] = useState([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
 
@@ -71,15 +37,162 @@ export default function StaffScreen({navigation}) {
   const [designation, setDesignation] = useState('');
   const [role, setRole] = useState('Staff');
 
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  const [companyId, setCompanyId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // =====================================
+  // GET COMPANY ID FROM ASYNC STORAGE
+  // =====================================
+  const getCompanyId = async () => {
+    let id = await AsyncStorage.getItem('company_id');
+
+    const possibleKeys = [
+      '@bondcrm_user',
+      'user',
+      'user_data',
+      'login_data',
+      'userData',
+    ];
+
+    for (const key of possibleKeys) {
+      const stored = await AsyncStorage.getItem(key);
+
+      if (!stored) {
+        continue;
+      }
+
+      try {
+        const user = JSON.parse(stored);
+
+        if (user && typeof user === 'object') {
+          id =
+            id ||
+            user.company_id ||
+            user.companyId ||
+            '';
+        }
+      } catch (error) {
+        console.log('Storage parse error:', error);
+      }
+    }
+
+    return String(id || '');
+  };
+
+  // =====================================
+  // API REQUEST
+  // =====================================
+  const callAPI = async params => {
+    const formData = new FormData();
+
+    Object.keys(params).forEach(key => {
+      formData.append(key, String(params[key] ?? ''));
+    });
+
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Server error');
+    }
+
+    return result;
+  };
+
+  // =====================================
+  // LOAD STAFF FROM DATABASE
+  // =====================================
+  const loadStaff = useCallback(async (showLoader = true) => {
+    if (showLoader) {
+      setLoading(true);
+    }
+
+    try {
+      let currentCompanyId = companyId;
+
+      if (!currentCompanyId) {
+        currentCompanyId = await getCompanyId();
+        setCompanyId(currentCompanyId);
+      }
+
+      if (!currentCompanyId) {
+        Alert.alert(
+          'Company ID Missing',
+          'Company ID AsyncStorage mein nahi mila. Login data check karein.',
+        );
+        setStaff([]);
+        return;
+      }
+
+      const result = await callAPI({
+        action: 'list',
+        company_id: currentCompanyId,
+        filter: 'All',
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || 'Staff list failed');
+      }
+
+      const staffList = result.data?.staff || [];
+
+      setStaff(
+        staffList.map(item => ({
+          ...item,
+          id: String(item.id),
+          phone: String(item.number || item.phone || ''),
+          active: Number(item.status) === 1,
+          role: item.role || 'Staff',
+        })),
+      );
+    } catch (error) {
+      console.log('Load Staff Error:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Unable to load staff.',
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    loadStaff();
+  }, [loadStaff]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadStaff(false);
+  };
+
+  // =====================================
+  // SUMMARY
+  // =====================================
   const totalStaff = staff.length;
   const activeStaff = staff.filter(item => item.active).length;
   const inactiveStaff = totalStaff - activeStaff;
 
+  // =====================================
+  // SEARCH AND FILTER
+  // =====================================
   const filteredStaff = staff.filter(item => {
+    const searchText = search.toLowerCase();
+
     const matchSearch =
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.designation.toLowerCase().includes(search.toLowerCase()) ||
-      item.phone.includes(search);
+      String(item.name || '').toLowerCase().includes(searchText) ||
+      String(item.designation || '').toLowerCase().includes(searchText) ||
+      String(item.phone || '').includes(searchText) ||
+      String(item.email || '').toLowerCase().includes(searchText);
 
     const matchFilter =
       filter === 'All' ||
@@ -89,75 +202,173 @@ export default function StaffScreen({navigation}) {
     return matchSearch && matchFilter;
   });
 
-  const openAddModal = () => {
+  // =====================================
+  // RESET FORM
+  // =====================================
+  const resetForm = () => {
     setEditingId(null);
     setName('');
     setPhone('');
     setEmail('');
     setDesignation('');
     setRole('Staff');
+    setPassword('');
+    setShowPassword(false);
+  };
+
+  // =====================================
+  // ADD STAFF MODAL
+  // =====================================
+  const openAddModal = () => {
+    resetForm();
     setModalVisible(true);
   };
 
+  // =====================================
+  // EDIT STAFF MODAL
+  // =====================================
   const openEditModal = item => {
     setEditingId(item.id);
-    setName(item.name);
-    setPhone(item.phone);
-    setEmail(item.email);
-    setDesignation(item.designation);
-    setRole(item.role);
+    setName(item.name || '');
+    setPhone(item.phone || '');
+    setEmail(item.email || '');
+    setDesignation(item.designation || '');
+    setRole(
+      String(item.role).toLowerCase() === 'admin'
+        ? 'Admin'
+        : 'Staff',
+    );
+    setPassword('');
+    setShowPassword(false);
     setModalVisible(true);
   };
 
-  const saveStaff = () => {
-    if (!name.trim() || !phone.trim() || !email.trim() || !designation.trim()) {
+  // =====================================
+  // SAVE STAFF - ADD / UPDATE API
+  // =====================================
+  const saveStaff = async () => {
+    if (
+      !name.trim() ||
+      !phone.trim() ||
+      !email.trim() ||
+      !designation.trim()
+    ) {
       Alert.alert('Required', 'Please fill all staff details.');
       return;
     }
 
-    if (phone.length !== 10) {
+    if (!/^[0-9]{10}$/.test(phone)) {
       Alert.alert('Invalid Mobile', 'Enter valid 10 digit mobile number.');
       return;
     }
 
-    const staffData = {
-      name: name.trim(),
-      phone,
-      email: email.trim(),
-      designation: designation.trim(),
-      role,
-      active: true,
-    };
-
-    if (editingId) {
-      setStaff(previous =>
-        previous.map(item =>
-          item.id === editingId
-            ? {...item, ...staffData}
-            : item,
-        ),
-      );
-    } else {
-      setStaff(previous => [
-        ...previous,
-        {...staffData, id: Date.now().toString()},
-      ]);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address.');
+      return;
     }
 
-    setModalVisible(false);
-    Alert.alert('Success', editingId ? 'Staff updated successfully.' : 'Staff added successfully.');
+    if (!editingId && !password.trim()) {
+      Alert.alert('Required', 'Please enter staff password.');
+      return;
+    }
+
+    if (password.trim() && password.trim().length < 6) {
+      Alert.alert(
+        'Invalid Password',
+        'Password must be at least 6 characters.',
+      );
+      return;
+    }
+
+    if (!companyId) {
+      Alert.alert('Error', 'Company ID not found.');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const params = {
+        action: editingId ? 'update' : 'add',
+        company_id: companyId,
+        name: name.trim(),
+        designation: designation.trim(),
+        number: phone.trim(),
+        email: email.trim().toLowerCase(),
+        role: role,
+        password: password.trim(),
+      };
+
+      if (editingId) {
+        params.id = editingId;
+      }
+
+      const result = await callAPI(params);
+
+      if (!result.success) {
+        throw new Error(result.message || 'Unable to save staff.');
+      }
+
+      setModalVisible(false);
+      resetForm();
+
+      Alert.alert(
+        'Success',
+        result.message ||
+          (editingId
+            ? 'Staff updated successfully.'
+            : 'Staff added successfully.'),
+      );
+
+      await loadStaff(false);
+    } catch (error) {
+      console.log('Save Staff Error:', error);
+      Alert.alert('Error', error.message || 'Staff save failed.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const toggleStatus = id => {
-    setStaff(previous =>
-      previous.map(item =>
-        item.id === id
-          ? {...item, active: !item.active}
-          : item,
-      ),
+  // =====================================
+  // TOGGLE ACTIVE / INACTIVE
+  // =====================================
+  const toggleStatus = item => {
+    const newStatus = item.active ? 'Inactive' : 'Active';
+
+    Alert.alert(
+      'Change Staff Status',
+      `Are you sure you want to ${newStatus.toLowerCase()} this staff member?`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Yes',
+          onPress: async () => {
+            try {
+              const result = await callAPI({
+                action: 'toggle_status',
+                company_id: companyId,
+                id: item.id,
+              });
+
+              if (!result.success) {
+                throw new Error(result.message || 'Status update failed.');
+              }
+
+              await loadStaff(false);
+
+              Alert.alert('Success', result.message);
+            } catch (error) {
+              Alert.alert('Error', error.message);
+            }
+          },
+        },
+      ],
     );
   };
 
+  // =====================================
+  // DELETE STAFF
+  // =====================================
   const deleteStaff = id => {
     Alert.alert(
       'Delete Staff',
@@ -167,45 +378,71 @@ export default function StaffScreen({navigation}) {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () =>
-            setStaff(previous =>
-              previous.filter(item => item.id !== id),
-            ),
+          onPress: async () => {
+            try {
+              const result = await callAPI({
+                action: 'delete',
+                company_id: companyId,
+                id: id,
+              });
+
+              if (!result.success) {
+                throw new Error(result.message || 'Delete failed.');
+              }
+
+              await loadStaff(false);
+
+              Alert.alert('Success', result.message);
+            } catch (error) {
+              Alert.alert('Error', error.message);
+            }
+          },
         },
       ],
     );
   };
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+  // =====================================
+  // LOADING SCREEN
+  // =====================================
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar backgroundColor="#6422CB" barStyle="light-content" />
+        <ActivityIndicator size="large" color="#702ACB" />
+        <Text style={styles.loadingText}>Loading Staff...</Text>
+      </SafeAreaView>
+    );
+  }
 
-      <StatusBar
-        backgroundColor="#6422CB"
-        barStyle="light-content"
-      />
+  return (
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
+
+      <StatusBar backgroundColor="#6422CB" barStyle="light-content" />
 
       {/* HEADER */}
       <LinearGradient
         colors={['#8139EC', '#5018B9']}
         style={styles.header}>
-
-        <TouchableOpacity
-          onPress={() => navigation?.goBack()}>
+        <TouchableOpacity onPress={() => navigation?.goBack()}>
           <Ionicons name="arrow-back" size={25} color="#FFFFFF" />
         </TouchableOpacity>
 
         <Text style={styles.headerTitle}>Staff Management</Text>
 
-        <TouchableOpacity
-          onPress={() => navigation?.navigate('Profile')}>
-          <Ionicons name="person-circle-outline" size={29} color="#FFFFFF" />
-        </TouchableOpacity>
-
+        <View style={{width: 25}} />
       </LinearGradient>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#702ACB']}
+          />
+        }>
 
         {/* PAGE TITLE */}
         <View style={styles.headingSection}>
@@ -217,7 +454,6 @@ export default function StaffScreen({navigation}) {
 
         {/* SUMMARY CARDS */}
         <View style={styles.statsRow}>
-
           <View style={[styles.statCard, {backgroundColor: '#EAF0FF'}]}>
             <View style={[styles.statIcon, {backgroundColor: '#DCE8FF'}]}>
               <Ionicons name="people" size={23} color="#3979ED" />
@@ -241,12 +477,10 @@ export default function StaffScreen({navigation}) {
             <Text style={styles.statLabel}>Inactive</Text>
             <Text style={styles.statNumber}>{inactiveStaff}</Text>
           </View>
-
         </View>
 
         {/* SEARCH AND ADD */}
         <View style={styles.searchRow}>
-
           <View style={styles.searchBox}>
             <Ionicons name="search" size={22} color="#77718A" />
 
@@ -269,17 +503,13 @@ export default function StaffScreen({navigation}) {
             activeOpacity={0.85}
             style={styles.addButton}
             onPress={openAddModal}>
-
             <LinearGradient
               colors={['#853BEF', '#581AC5']}
               style={styles.addGradient}>
-
               <Ionicons name="add" size={23} color="#FFFFFF" />
               <Text style={styles.addButtonText}>Add</Text>
-
             </LinearGradient>
           </TouchableOpacity>
-
         </View>
 
         {/* FILTERS */}
@@ -292,7 +522,6 @@ export default function StaffScreen({navigation}) {
                 styles.filterButton,
                 filter === item && styles.activeFilter,
               ]}>
-
               <Text
                 style={[
                   styles.filterText,
@@ -302,24 +531,25 @@ export default function StaffScreen({navigation}) {
               </Text>
 
               {item === 'All' && (
-                <Text style={[
-                  styles.filterCount,
-                  filter === item && styles.activeFilterText,
-                ]}>
+                <Text
+                  style={[
+                    styles.filterCount,
+                    filter === item && styles.activeFilterText,
+                  ]}>
                   {totalStaff}
                 </Text>
               )}
-
             </TouchableOpacity>
           ))}
         </View>
 
         {/* STAFF LIST */}
         <View style={styles.staffListCard}>
-
           <View style={styles.listHeading}>
             <Text style={styles.listTitle}>All Staff Members</Text>
-            <Text style={styles.listCount}>{filteredStaff.length} Members</Text>
+            <Text style={styles.listCount}>
+              {filteredStaff.length} Members
+            </Text>
           </View>
 
           {filteredStaff.length === 0 ? (
@@ -341,94 +571,115 @@ export default function StaffScreen({navigation}) {
                   },
                 ]}>
 
-                {/* Avatar */}
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
-                    {item.name.charAt(0).toUpperCase()}
+                    {(item.name || 'S').charAt(0).toUpperCase()}
                   </Text>
                 </View>
 
-                {/* Staff Info */}
                 <View style={styles.staffInfo}>
-
                   <View style={styles.nameRow}>
                     <Text style={styles.staffName}>{item.name}</Text>
 
-                    <View style={[
-                      styles.statusBadge,
-                      {backgroundColor: item.active ? '#E0F6EB' : '#FFE5E9'},
-                    ]}>
-                      <Text style={[
-                        styles.statusText,
-                        {color: item.active ? '#129764' : '#D94358'},
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor: item.active
+                            ? '#E0F6EB'
+                            : '#FFE5E9',
+                        },
                       ]}>
+                      <Text
+                        style={[
+                          styles.statusText,
+                          {
+                            color: item.active ? '#129764' : '#D94358',
+                          },
+                        ]}>
                         {item.active ? 'Active' : 'Inactive'}
                       </Text>
                     </View>
                   </View>
 
-                  <Text style={styles.designation}>{item.designation}</Text>
+                  <Text style={styles.designation}>
+                    {item.designation}
+                  </Text>
 
                   <View style={styles.contactRow}>
-                    <Ionicons name="call-outline" size={14} color="#77718A" />
-                    <Text style={styles.contactText}>+91 {item.phone}</Text>
+                    <Ionicons
+                      name="call-outline"
+                      size={14}
+                      color="#77718A"
+                    />
+                    <Text style={styles.contactText}>
+                      +91 {item.phone}
+                    </Text>
                   </View>
 
                   <View style={styles.contactRow}>
-                    <Ionicons name="mail-outline" size={14} color="#77718A" />
+                    <Ionicons
+                      name="mail-outline"
+                      size={14}
+                      color="#77718A"
+                    />
                     <Text style={styles.contactText} numberOfLines={1}>
                       {item.email}
                     </Text>
                   </View>
 
-                  {/* Actions */}
                   <View style={styles.actionRow}>
-
                     <TouchableOpacity
                       style={styles.editButton}
                       onPress={() => openEditModal(item)}>
-                      <Ionicons name="create-outline" size={15} color="#6127C6" />
+                      <Ionicons
+                        name="create-outline"
+                        size={15}
+                        color="#6127C6"
+                      />
                       <Text style={styles.editText}>Edit</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       style={styles.statusAction}
-                      onPress={() => toggleStatus(item.id)}>
+                      onPress={() => toggleStatus(item)}>
                       <Ionicons
-                        name={item.active ? 'pause-circle-outline' : 'play-circle-outline'}
+                        name={
+                          item.active
+                            ? 'pause-circle-outline'
+                            : 'play-circle-outline'
+                        }
                         size={15}
                         color={item.active ? '#D28A19' : '#159568'}
                       />
-                      <Text style={[
-                        styles.actionText,
-                        {color: item.active ? '#D28A19' : '#159568'},
-                      ]}>
+                      <Text
+                        style={[
+                          styles.actionText,
+                          {color: item.active ? '#D28A19' : '#159568'},
+                        ]}>
                         {item.active ? 'Deactivate' : 'Activate'}
                       </Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity
-                      onPress={() => deleteStaff(item.id)}>
-                      <Ionicons name="trash-outline" size={18} color="#E34A59" />
+                    <TouchableOpacity onPress={() => deleteStaff(item.id)}>
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color="#E34A59"
+                      />
                     </TouchableOpacity>
-
                   </View>
-
                 </View>
               </View>
             ))
           )}
-
         </View>
 
-        {/* FOOTER */}
         <Text style={styles.footer}>Powered by BondCRM</Text>
-
       </ScrollView>
 
       {/* BOTTOM NAVIGATION */}
       <View style={styles.bottomNavigation}>
-
         {[
           {name: 'Dashboard', icon: 'grid-outline', route: 'Dashboard'},
           {name: 'All Leads', icon: 'people-outline', route: 'AllLeads'},
@@ -440,7 +691,6 @@ export default function StaffScreen({navigation}) {
             key={item.name}
             style={styles.navItem}
             onPress={() => navigation?.navigate(item.route)}>
-
             {index === 2 ? (
               <LinearGradient
                 colors={['#853BEF', '#581AC5']}
@@ -454,11 +704,9 @@ export default function StaffScreen({navigation}) {
                 color="#817A90"
               />
             )}
-
             <Text style={styles.navText}>{item.name}</Text>
           </TouchableOpacity>
         ))}
-
       </View>
 
       {/* ADD / EDIT STAFF MODAL */}
@@ -479,7 +727,6 @@ export default function StaffScreen({navigation}) {
           />
 
           <View style={styles.modalContent}>
-
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>
@@ -491,11 +738,17 @@ export default function StaffScreen({navigation}) {
               </View>
 
               <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close-circle" size={28} color="#8B829B" />
+                <Ionicons
+                  name="close-circle"
+                  size={28}
+                  color="#8B829B"
+                />
               </TouchableOpacity>
             </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
 
               {[
                 {
@@ -506,10 +759,18 @@ export default function StaffScreen({navigation}) {
                   keyboard: 'default',
                 },
                 {
+                  label: 'Designation *',
+                  icon: 'briefcase-outline',
+                  value: designation,
+                  set: setDesignation,
+                  keyboard: 'default',
+                },
+                {
                   label: 'Mobile Number *',
                   icon: 'call-outline',
                   value: phone,
-                  set: text => setPhone(text.replace(/[^0-9]/g, '').slice(0, 10)),
+                  set: text =>
+                    setPhone(text.replace(/[^0-9]/g, '').slice(0, 10)),
                   keyboard: 'phone-pad',
                 },
                 {
@@ -519,16 +780,14 @@ export default function StaffScreen({navigation}) {
                   set: setEmail,
                   keyboard: 'email-address',
                 },
-                {
-                  label: 'Designation *',
-                  icon: 'briefcase-outline',
-                  value: designation,
-                  set: setDesignation,
-                  keyboard: 'default',
-                },
               ].map((field, index) => (
                 <View style={styles.modalInput} key={index}>
-                  <Ionicons name={field.icon} size={20} color="#77718A" />
+                  <Ionicons
+                    name={field.icon}
+                    size={20}
+                    color="#77718A"
+                  />
+
                   <TextInput
                     style={styles.modalTextInput}
                     placeholder={field.label}
@@ -536,10 +795,50 @@ export default function StaffScreen({navigation}) {
                     value={field.value}
                     onChangeText={field.set}
                     keyboardType={field.keyboard}
-                    autoCapitalize={field.keyboard === 'email-address' ? 'none' : 'words'}
+                    autoCapitalize={
+                      field.keyboard === 'email-address' ? 'none' : 'words'
+                    }
                   />
                 </View>
               ))}
+
+              {/* PASSWORD FIELD */}
+              <View style={styles.modalInput}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={20}
+                  color="#77718A"
+                />
+
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder={
+                    editingId
+                      ? 'New Password (Optional)'
+                      : 'Password *'
+                  }
+                  placeholderTextColor="#9994A5"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                />
+
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}>
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={21}
+                    color="#77718A"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.passwordHint}>
+                {editingId
+                  ? 'Leave blank to keep the existing password.'
+                  : 'Minimum 6 characters required.'}
+              </Text>
 
               <Text style={styles.roleLabel}>Staff Role</Text>
 
@@ -552,10 +851,11 @@ export default function StaffScreen({navigation}) {
                       styles.roleButton,
                       role === item && styles.selectedRole,
                     ]}>
-                    <Text style={[
-                      styles.roleText,
-                      role === item && styles.selectedRoleText,
-                    ]}>
+                    <Text
+                      style={[
+                        styles.roleText,
+                        role === item && styles.selectedRoleText,
+                      ]}>
                       {item}
                     </Text>
                   </TouchableOpacity>
@@ -563,38 +863,60 @@ export default function StaffScreen({navigation}) {
               </View>
 
               <TouchableOpacity
-                style={styles.saveButton}
+                style={[
+                  styles.saveButton,
+                  saving && {opacity: 0.7},
+                ]}
                 activeOpacity={0.85}
+                disabled={saving}
                 onPress={saveStaff}>
-
                 <LinearGradient
                   colors={['#8138EC', '#541BC2']}
                   style={styles.saveGradient}>
-
-                  <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />
-
-                  <Text style={styles.saveText}>
-                    {editingId ? 'Update Staff' : 'Save Staff'}
-                  </Text>
-
+                  {saving ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="checkmark-circle-outline"
+                        size={20}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.saveText}>
+                        {editingId ? 'Update Staff' : 'Save Staff'}
+                      </Text>
+                    </>
+                  )}
                 </LinearGradient>
               </TouchableOpacity>
-
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
     </SafeAreaView>
   );
 }
 
+// =====================================
+// STYLES
+// =====================================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F6FC',
   },
-
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#F8F6FC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#702ACB',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   header: {
     height: 62,
     paddingHorizontal: 17,
@@ -602,42 +924,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-
   headerTitle: {
     color: '#FFFFFF',
     fontSize: 19,
     fontWeight: '800',
   },
-
   scrollContent: {
     paddingHorizontal: 15,
     paddingTop: 18,
     paddingBottom: 25,
   },
-
   headingSection: {
     marginBottom: 17,
   },
-
   heading: {
     fontSize: 20,
     color: '#29174F',
     fontWeight: '800',
   },
-
   subHeading: {
     color: '#8C849C',
     fontSize: 12,
     marginTop: 4,
   },
-
-  // SUMMARY
   statsRow: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 18,
   },
-
   statCard: {
     flex: 1,
     minHeight: 112,
@@ -646,7 +960,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   statIcon: {
     width: 39,
     height: 39,
@@ -655,26 +968,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 5,
   },
-
   statLabel: {
     fontSize: 10,
     color: '#625B70',
   },
-
   statNumber: {
     fontSize: 23,
     color: '#30234C',
     fontWeight: '900',
     marginTop: 1,
   },
-
-  // SEARCH
   searchRow: {
     flexDirection: 'row',
     gap: 9,
     marginBottom: 13,
   },
-
   searchBox: {
     flex: 1,
     height: 52,
@@ -686,7 +994,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
   },
-
   searchInput: {
     flex: 1,
     marginLeft: 9,
@@ -694,14 +1001,12 @@ const styles = StyleSheet.create({
     color: '#30234C',
     paddingVertical: 0,
   },
-
   addButton: {
     width: 92,
     height: 52,
     borderRadius: 12,
     overflow: 'hidden',
   },
-
   addGradient: {
     flex: 1,
     flexDirection: 'row',
@@ -709,20 +1014,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 3,
   },
-
   addButtonText: {
     fontSize: 13,
     color: '#FFFFFF',
     fontWeight: '800',
   },
-
-  // FILTER
   filterRow: {
     flexDirection: 'row',
     gap: 9,
     marginBottom: 15,
   },
-
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -734,28 +1035,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E7E0F1',
   },
-
   activeFilter: {
     backgroundColor: '#6425CC',
     borderColor: '#6425CC',
   },
-
   filterText: {
     fontSize: 11,
     color: '#6C637C',
     fontWeight: '600',
   },
-
   filterCount: {
     fontSize: 10,
     color: '#6C637C',
   },
-
   activeFilterText: {
     color: '#FFFFFF',
   },
-
-  // STAFF LIST
   staffListCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 17,
@@ -767,25 +1062,21 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: {width: 0, height: 3},
   },
-
   listHeading: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 5,
   },
-
   listTitle: {
     fontSize: 15,
     color: '#30234C',
     fontWeight: '800',
   },
-
   listCount: {
     fontSize: 10,
     color: '#8A8298',
   },
-
   staffItem: {
     flexDirection: 'row',
     paddingVertical: 15,
@@ -793,7 +1084,6 @@ const styles = StyleSheet.create({
     borderBottomColor: '#EDE8F4',
     gap: 11,
   },
-
   avatar: {
     width: 52,
     height: 52,
@@ -802,118 +1092,98 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   avatarText: {
     color: '#6228C6',
     fontSize: 23,
     fontWeight: '900',
   },
-
   staffInfo: {
     flex: 1,
   },
-
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 5,
   },
-
   staffName: {
     flex: 1,
     fontSize: 15,
     color: '#251A3B',
     fontWeight: '800',
   },
-
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
   },
-
   statusText: {
     fontSize: 10,
     fontWeight: '700',
   },
-
   designation: {
     fontSize: 12,
     color: '#70677F',
     marginTop: 4,
     marginBottom: 7,
   },
-
   contactRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
     marginBottom: 5,
   },
-
   contactText: {
     flex: 1,
     fontSize: 10,
     color: '#5F566F',
   },
-
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     marginTop: 9,
   },
-
   editButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-
   editText: {
     fontSize: 10,
     color: '#6127C6',
     fontWeight: '700',
   },
-
   statusAction: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-
   actionText: {
     fontSize: 10,
     fontWeight: '600',
   },
-
   emptyState: {
     alignItems: 'center',
     paddingVertical: 45,
   },
-
   emptyTitle: {
     color: '#37264E',
     fontSize: 16,
     fontWeight: '800',
     marginTop: 12,
   },
-
   emptySubtitle: {
     color: '#9990A7',
     fontSize: 11,
     marginTop: 5,
   },
-
   footer: {
     textAlign: 'center',
     color: '#AAA1B9',
     fontSize: 10,
     marginTop: 20,
   },
-
-  // BOTTOM NAV
   bottomNavigation: {
     height: 70,
     backgroundColor: '#FFFFFF',
@@ -924,20 +1194,17 @@ const styles = StyleSheet.create({
     borderTopColor: '#EEE9F5',
     paddingHorizontal: 4,
   },
-
   navItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
   },
-
   navText: {
     fontSize: 9,
     color: '#817A90',
     fontWeight: '500',
   },
-
   addNavButton: {
     width: 43,
     height: 43,
@@ -947,48 +1214,40 @@ const styles = StyleSheet.create({
     marginTop: -19,
     elevation: 5,
   },
-
-  // ADD STAFF MODAL
   modalBackground: {
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(25,10,55,0.35)',
   },
-
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
-
   modalContent: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
     padding: 22,
     paddingBottom: 35,
-    maxHeight: '85%',
+    maxHeight: '90%',
   },
-
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 20,
   },
-
   modalTitle: {
     fontSize: 20,
     fontWeight: '800',
     color: '#35117F',
   },
-
   modalSubtitle: {
     fontSize: 11,
     color: '#90869F',
     marginTop: 4,
   },
-
   modalInput: {
-    height: 53,
+    minHeight: 53,
     borderWidth: 1,
     borderColor: '#DED6EA',
     borderRadius: 11,
@@ -998,13 +1257,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 10,
   },
-
   modalTextInput: {
     flex: 1,
     fontSize: 13,
     color: '#30234C',
+    paddingVertical: 12,
   },
-
+  passwordHint: {
+    color: '#8C849C',
+    fontSize: 10,
+    marginTop: -5,
+    marginBottom: 14,
+    marginLeft: 4,
+  },
   roleLabel: {
     fontSize: 13,
     fontWeight: '700',
@@ -1012,13 +1277,11 @@ const styles = StyleSheet.create({
     marginTop: 5,
     marginBottom: 10,
   },
-
   roleRow: {
     flexDirection: 'row',
     gap: 10,
     marginBottom: 18,
   },
-
   roleButton: {
     flex: 1,
     padding: 12,
@@ -1027,29 +1290,24 @@ const styles = StyleSheet.create({
     borderColor: '#DED6EA',
     alignItems: 'center',
   },
-
   selectedRole: {
     backgroundColor: '#6425CC',
     borderColor: '#6425CC',
   },
-
   roleText: {
     color: '#635A72',
     fontSize: 13,
     fontWeight: '600',
   },
-
   selectedRoleText: {
     color: '#FFFFFF',
   },
-
   saveButton: {
     height: 53,
     borderRadius: 11,
     overflow: 'hidden',
     elevation: 3,
   },
-
   saveGradient: {
     flex: 1,
     flexDirection: 'row',
@@ -1057,11 +1315,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 9,
   },
-
   saveText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
   },
-
 });

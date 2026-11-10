@@ -11,18 +11,14 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 const {width, height} = Dimensions.get('window');
 
-
 export default function SplashScreen({navigation, onGetStarted}) {
-
 const handleGetStarted = async () => {
   try {
     const isLoggedIn = await AsyncStorage.getItem('isLoggedIn');
-
     if (isLoggedIn === 'true') {
-      navigation.replace('Dashboard');
+        navigation.replace('MainTabs');
     } else {
       navigation.replace('Login');
     }
@@ -44,12 +40,10 @@ const handleGetStarted = async () => {
         translucent={false}
       />
 
-      <SafeAreaView style={styles.safeArea}>
-
+      <SafeAreaView style={styles.safeArea}  edges={['top', 'bottom']}>
         {/* Decorative Background */}
         <View style={styles.circleTop} />
         <View style={styles.circleBottom} />
-
         {/* Logo Section */}
         <View style={styles.logoSection}>
           <Image
@@ -67,13 +61,10 @@ const handleGetStarted = async () => {
 
         {/* Center Illustration */}
         <View style={styles.illustrationSection}>
-
           <View style={styles.leafOne} />
           <View style={styles.leafTwo} />
-
           {/* Dashboard Card */}
           <View style={styles.dashboardCard}>
-
             <LinearGradient
               colors={['#A15AFF', '#6E25E9']}
               style={styles.dashboardHeader}>
@@ -136,11 +127,6 @@ const handleGetStarted = async () => {
         </View>
 
         {/* Page Indicator */}
-        <View style={styles.dotsContainer}>
-          <View style={[styles.dot, styles.activeDot]} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
 
         {/* Get Started Button */}
         <View style={styles.buttonContainer}>

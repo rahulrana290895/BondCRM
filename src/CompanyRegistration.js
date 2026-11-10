@@ -132,7 +132,6 @@ export default function CompanyRegistration({navigation, route}) {
 
 
         await AsyncStorage.setItem('@bondcrm_user', JSON.stringify(userData));
-
         await AsyncStorage.setItem('id', userData.id);
         await AsyncStorage.setItem('company_id', userData.company_id);
         await AsyncStorage.setItem('name', userData.name);
@@ -185,7 +184,7 @@ export default function CompanyRegistration({navigation, route}) {
         barStyle="dark-content"
       />
 
-      <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={{flex: 1}}
           behavior={

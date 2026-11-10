@@ -1,4 +1,3 @@
-
 import React from 'react';
 import {
   View,
@@ -102,7 +101,7 @@ export default function DashboardScreen({navigation}) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
 
       <StatusBar
         backgroundColor="#5520C6"
@@ -428,72 +427,6 @@ export default function DashboardScreen({navigation}) {
 
       </ScrollView>
 
-      {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNavigation}>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => handleNavigation('Dashboard')}>
-          <View style={styles.activeNavIcon}>
-            <Ionicons
-              name="grid"
-              size={21}
-              color="#FFFFFF"
-            />
-          </View>
-          <Text style={styles.activeNavText}>Dashboard</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => handleNavigation('AllLeads')}>
-          <Ionicons
-            name="people-outline"
-            size={23}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>All Leads</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.addNavItem}
-          onPress={() => handleNavigation('AddLead')}>
-          <LinearGradient
-            colors={['#8239EC', '#5017BC']}
-            style={styles.addNavButton}>
-            <Ionicons
-              name="add"
-              size={31}
-              color="#FFFFFF"
-            />
-          </LinearGradient>
-          <Text style={styles.navText}>Add Lead</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => handleNavigation('LeadPipeline')}>
-          <Ionicons
-            name="git-branch-outline"
-            size={23}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>Pipeline</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => handleNavigation('FollowUp')}>
-          <Ionicons
-            name="calendar-outline"
-            size={23}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>Follow Up</Text>
-        </TouchableOpacity>
-
-      </View>
-
     </SafeAreaView>
   );
 }
@@ -574,7 +507,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 19,
-    paddingBottom: 25,
+    paddingBottom: 20,
   },
 
   // GREETING
@@ -899,61 +832,5 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
 
-  // BOTTOM NAVIGATION
-  bottomNavigation: {
-    height: 70,
-    backgroundColor: '#FFFFFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    borderTopWidth: 1,
-    borderTopColor: '#EEE9F5',
-    paddingHorizontal: 4,
-  },
-
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-
-  activeNavIcon: {
-    width: 35,
-    height: 29,
-    borderRadius: 9,
-    backgroundColor: '#6425CC',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  activeNavText: {
-    fontSize: 9,
-    color: '#6425CC',
-    fontWeight: '800',
-  },
-
-  navText: {
-    fontSize: 9,
-    color: '#817A90',
-    fontWeight: '500',
-  },
-
-  addNavItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-
-  addNavButton: {
-    width: 43,
-    height: 43,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -19,
-    elevation: 5,
-  },
 
 });

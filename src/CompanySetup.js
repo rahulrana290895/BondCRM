@@ -98,7 +98,7 @@ export default function CompanySetup({navigation, route}) {
 
       <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
 
-      <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={{flex: 1}}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

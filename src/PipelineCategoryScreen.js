@@ -234,8 +234,7 @@ export default function PipelineCategoryScreen({navigation}) {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
       <StatusBar
         backgroundColor="#6422C9"
         barStyle="light-content"

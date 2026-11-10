@@ -1,2 +1,2 @@
-export const BASE_URL = 'http://10.0.2.2/bondCRM/';
-export const ASSETS_URL = 'http://10.0.2.2/bondCRM/assets';
+export const BASE_URL = 'https://bondinfotech.com/more/BondCRM/api/';
+export const ASSETS_URL = 'https://bondinfotech.com/more/BondCRM/assets/';

@@ -1,4 +1,3 @@
-
 import React, {useState} from 'react';
 import {
   View,
@@ -12,24 +11,82 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
+
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {BASE_URL} from './config/config';
 
 const {width, height} = Dimensions.get('window');
 
 export default function LoginScreen({navigation}) {
-  const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = () => {
-    navigation.replace('Dashboard');
-  };
+const handleLogin = async () => {
+  if (!mobile || !password) {
+    Alert.alert('Error', 'Enter mobile number and password');
+    return;
+  }
 
-  return (
+  if (mobile.length !== 10) {
+    Alert.alert('Error', 'Enter valid 10 digit mobile number');
+    return;
+  }
+
+  setIsLoading(true);
+
+  try {
+    const formData = new FormData();
+    formData.append('mobile', mobile);
+    formData.append('password', password);
+    const API_URL = `${BASE_URL}login.php`;
+
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      body: formData,
+    });
+
+    console.warn('HTTP STATUS:', response.status);
+
+    const text = await response.text();
+    console.warn('SERVER RESPONSE:', text);
+
+    const result = JSON.parse(text);
+
+    if (result.success === true) {
+      const user = result.data;
+
+      await AsyncStorage.setItem('@bondcrm_user', JSON.stringify(user));
+      await AsyncStorage.setItem('id', String(user.id));
+      await AsyncStorage.setItem('company_id', String(user.company_id));
+      await AsyncStorage.setItem('name', userData.name);
+      await AsyncStorage.setItem('designation', userData.designation);
+      await AsyncStorage.setItem('role', userData.role);
+      await AsyncStorage.setItem('isLoggedIn', 'true');
+
+      navigation.reset({
+        index: 0,
+        routes: [{name: 'Dashboard'}],
+      });
+    }
+
+  } catch (error) {
+    console.log(error);
+    Alert.alert('Error', 'Server connection failed. Check API URL.');
+  }
+
+  setIsLoading(false);
+};
+
+return (
 <LinearGradient
   colors={['#FFFFFF', '#FAF7FF', '#F0E8FF']}
   locations={[0, 0.55, 1]}
@@ -40,212 +97,224 @@ export default function LoginScreen({navigation}) {
     barStyle="dark-content"
   />
 
-  <SafeAreaView style={styles.container}>
-      <StatusBar
-        backgroundColor="#FFFFFF"
-        barStyle="dark-content"
-      />
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
+    <KeyboardAvoidingView
+      style={{flex: 1}}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
 
-      <KeyboardAvoidingView
-        style={{flex: 1}}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
 
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
-
-          {/* Logo Section */}
-          <View style={styles.logoSection}>
-            <View style={styles.logoCircle}>
-              <Image
-                source={require('./assets/logo.png')}
-                style={styles.logo}
-                resizeMode="contain"
-              />
-            </View>
-
-            <Text style={styles.appName}>BondCRM</Text>
-
-            <Text style={styles.heading}>
-              Login to Your Account
-            </Text>
+        {/* Logo Section */}
+        <View style={styles.logoSection}>
+          <View style={styles.logoCircle}>
+            <Image
+              source={require('./assets/logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
           </View>
 
-          {/* Login Form */}
-          <View style={styles.formContainer}>
+          <Text style={styles.appName}>BondCRM</Text>
 
-            {/* Email Input */}
-            <View style={styles.inputContainer}>
+          <Text style={styles.heading}>
+            Login to Your Account
+          </Text>
+        </View>
+
+        {/* Login Form */}
+        <View style={styles.formContainer}>
+
+          {/* Mobile Number Input */}
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="call-outline"
+              size={21}
+              color="#77718A"
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Mobile Number"
+              placeholderTextColor="#9994A5"
+              value={mobile}
+              onChangeText={value =>
+                setMobile(value.replace(/[^0-9]/g, '').slice(0, 10))
+              }
+              keyboardType="number-pad"
+              maxLength={10}
+              autoCapitalize="none"
+              editable={!isLoading}
+            />
+          </View>
+
+          {/* Password Input */}
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={21}
+              color="#77718A"
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#9994A5"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              editable={!isLoading}
+              returnKeyType="done"
+              onSubmitEditing={handleLogin}
+            />
+
+            <TouchableOpacity
+              onPress={() => setShowPassword(!showPassword)}
+              disabled={isLoading}>
               <Ionicons
-                name="person-outline"
+                name={showPassword ? 'eye-outline' : 'eye-off-outline'}
                 size={21}
                 color="#77718A"
               />
+            </TouchableOpacity>
+          </View>
 
-              <TextInput
-                style={styles.input}
-                placeholder="Email / Mobile"
-                placeholderTextColor="#9994A5"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
+          {/* Remember & Forgot Password */}
+          <View style={styles.optionsRow}>
 
-            {/* Password Input */}
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={21}
-                color="#77718A"
-              />
+            <TouchableOpacity
+              style={styles.rememberRow}
+              onPress={() => setRemember(!remember)}
+              disabled={isLoading}>
 
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#9994A5"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons
-                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                  size={21}
-                  color="#77718A"
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Remember & Forgot Password */}
-            <View style={styles.optionsRow}>
-
-              <TouchableOpacity
-                style={styles.rememberRow}
-                onPress={() => setRemember(!remember)}>
-
-                <View style={[
+              <View
+                style={[
                   styles.checkbox,
                   remember && styles.checkboxActive,
                 ]}>
-                  {remember && (
-                    <Ionicons
-                      name="checkmark"
-                      size={14}
-                      color="#FFFFFF"
-                    />
-                  )}
-                </View>
+                {remember && (
+                  <Ionicons
+                    name="checkmark"
+                    size={14}
+                    color="#FFFFFF"
+                  />
+                )}
+              </View>
 
-                <Text style={styles.rememberText}>
-                  Remember Me
-                </Text>
-              </TouchableOpacity>
+              <Text style={styles.rememberText}>
+                Remember Me
+              </Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => navigation?.navigate('ForgotPassword')}>
-                <Text style={styles.forgotText}>
-                  Forgot Password?
-                </Text>
-              </TouchableOpacity>
-
-            </View>
-
-            {/* Login Button */}
             <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={handleLogin}
-              style={styles.loginButton}>
+              disabled={isLoading}
+              onPress={() => navigation?.navigate('ForgotPassword')}>
+              <Text style={styles.forgotText}>
+                Forgot Password?
+              </Text>
+            </TouchableOpacity>
 
-              <LinearGradient
-                colors={['#7938E8', '#5420C8']}
-                style={styles.loginGradient}>
+          </View>
 
+          {/* Login Button */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleLogin}
+            disabled={isLoading}
+            style={styles.loginButton}>
+
+            <LinearGradient
+              colors={['#7938E8', '#5420C8']}
+              style={styles.loginGradient}>
+
+              {isLoading ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
                 <Text style={styles.loginButtonText}>
                   Login
                 </Text>
+              )}
 
-              </LinearGradient>
-            </TouchableOpacity>
+            </LinearGradient>
+          </TouchableOpacity>
 
-            {/* OR Divider */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.divider} />
-              <Text style={styles.orText}>or</Text>
-              <View style={styles.divider} />
+          {/* OR Divider */}
+          <View style={styles.dividerContainer}>
+            <View style={styles.divider} />
+            <Text style={styles.orText}>or</Text>
+            <View style={styles.divider} />
+          </View>
+
+          {/* Create Account */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={styles.createButton}
+            disabled={isLoading}
+            onPress={() => navigation?.navigate('CompanySetup')}>
+
+            <Text style={styles.createButtonText}>
+              Create Company Account
+            </Text>
+
+          </TouchableOpacity>
+
+        </View>
+
+        {/* Bottom Building Illustration */}
+        <View style={styles.buildingSection}>
+
+          <View style={styles.buildingGroup}>
+
+            {/* Left Building */}
+            <View style={styles.buildingOne}>
+              <View style={styles.windows}>
+                {Array.from({length: 8}).map((_, i) => (
+                  <View key={i} style={styles.window} />
+                ))}
+              </View>
             </View>
 
-            {/* Create Account */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={styles.createButton}
-              onPress={() => navigation?.navigate('CompanySetup')}>
+            {/* Middle Building */}
+            <View style={styles.buildingTwo}>
+              <View style={styles.windows}>
+                {Array.from({length: 12}).map((_, i) => (
+                  <View key={i} style={styles.window} />
+                ))}
+              </View>
+            </View>
 
-              <Text style={styles.createButtonText}>
-                Create Company Account
-              </Text>
+            {/* Right Building */}
+            <View style={styles.buildingThree}>
+              <View style={styles.windows}>
+                {Array.from({length: 6}).map((_, i) => (
+                  <View key={i} style={styles.window} />
+                ))}
+              </View>
+            </View>
 
-            </TouchableOpacity>
+            {/* Small Building */}
+            <View style={styles.buildingFour}>
+              <View style={styles.windows}>
+                {Array.from({length: 4}).map((_, i) => (
+                  <View key={i} style={styles.window} />
+                ))}
+              </View>
+            </View>
 
           </View>
 
-          {/* Bottom Building Illustration */}
-          <View style={styles.buildingSection}>
+          <View style={styles.groundLine} />
 
-            <View style={styles.buildingGroup}>
+        </View>
 
-              {/* Left Building */}
-              <View style={styles.buildingOne}>
-                <View style={styles.windows}>
-                  {Array.from({length: 8}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-              {/* Middle Building */}
-              <View style={styles.buildingTwo}>
-                <View style={styles.windows}>
-                  {Array.from({length: 12}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-              {/* Right Building */}
-              <View style={styles.buildingThree}>
-                <View style={styles.windows}>
-                  {Array.from({length: 6}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-              {/* Small Building */}
-              <View style={styles.buildingFour}>
-                <View style={styles.windows}>
-                  {Array.from({length: 4}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-            </View>
-
-            <View style={styles.groundLine} />
-
-
-          </View>
-
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   </SafeAreaView>
 </LinearGradient>
-  );
+);
 }
 
 const styles = StyleSheet.create({

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState, useCallback} from 'react';
 import {
   View,
   Text,
@@ -11,134 +11,250 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {BASE_URL} from './config/config';
 
-const initialData = {
-  Products: [
-    {id: '1', name: 'Laptop (Dell Inspiron)', code: 'PRD001', category: 'Hardware', price: '55000', active: true},
-    {id: '2', name: 'Smartphone (Samsung)', code: 'PRD002', category: 'Mobile', price: '24999', active: true},
-    {id: '3', name: 'LED Monitor (24 Inch)', code: 'PRD003', category: 'Accessories', price: '12500', active: true},
-    {id: '4', name: 'Printer (HP LaserJet)', code: 'PRD004', category: 'Peripherals', price: '18000', active: false},
-  ],
-  Services: [
-    {id: '5', name: 'Website Development', code: 'SRV001', category: 'Development', price: '25000', active: true},
-    {id: '6', name: 'App Development', code: 'SRV002', category: 'Mobile App', price: '50000', active: true},
-    {id: '7', name: 'Digital Marketing', code: 'SRV003', category: 'Marketing', price: '15000', active: true},
-  ],
-  Projects: [
-    {id: '8', name: 'CRM Software Project', code: 'PRJ001', category: 'Software', price: '150000', active: true},
-    {id: '9', name: 'E-Commerce Website', code: 'PRJ002', category: 'Website', price: '75000', active: true},
-  ],
-};
+const API_URL = `${BASE_URL}/products_services_projects.php`;
 
 const tabDetails = {
   Products: {
+    type: 'product',
     icon: 'cube-outline',
     singular: 'Product',
     color: '#3979ED',
     bg: '#E9F0FF',
-    prefix: 'PRD',
   },
   Services: {
+    type: 'service',
     icon: 'settings-outline',
     singular: 'Service',
     color: '#109B65',
     bg: '#E5F8EF',
-    prefix: 'SRV',
   },
   Projects: {
+    type: 'project',
     icon: 'layers-outline',
     singular: 'Project',
     color: '#E04455',
     bg: '#FFECEF',
-    prefix: 'PRJ',
   },
 };
 
 export default function ProductsServicesProjects({navigation}) {
   const [activeTab, setActiveTab] = useState('Products');
-  const [data, setData] = useState(initialData);
+
+  const [data, setData] = useState({
+    Products: [],
+    Services: [],
+    Projects: [],
+  });
+
+  const [companyId, setCompanyId] = useState('');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [category, setCategory] = useState('');
   const [price, setPrice] = useState('');
 
-  const currentItems = data[activeTab];
+  // GET COMPANY ID
+  const getCompanyId = async () => {
+    try {
+      let id = await AsyncStorage.getItem('company_id');
+
+      if (!id) {
+        const userData = await AsyncStorage.getItem('@bondcrm_user');
+
+        if (userData) {
+          const user = JSON.parse(userData);
+          id = user.company_id?.toString();
+        }
+      }
+
+      if (!id) {
+        const userData = await AsyncStorage.getItem('@bondcrm_user');
+        if (userData) {
+          const user = JSON.parse(userData);
+          id = user.company_id?.toString();
+        }
+      }
+
+      if (!id) {
+        throw new Error('Company ID not found. Please login again.');
+      }
+
+      setCompanyId(id);
+      return id;
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Unable to get company ID');
+      return null;
+    }
+  };
+
+  // API REQUEST
+  const apiRequest = async (formData) => {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || 'Something went wrong');
+    }
+
+    return result;
+  };
+
+  // LOAD ALL ITEMS
+  const loadItems = useCallback(async (id = companyId) => {
+    if (!id) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const formData = new FormData();
+      formData.append('action', 'list');
+      formData.append('company_id', id);
+
+      const result = await apiRequest(formData);
+      const items = Array.isArray(result.data) ? result.data : [];
+
+      setData({
+        Products: items
+          .filter(item => item.type === 'product')
+          .map(item => ({
+            ...item,
+            active: Number(item.status) === 1,
+          })),
+
+        Services: items
+          .filter(item => item.type === 'service')
+          .map(item => ({
+            ...item,
+            active: Number(item.status) === 1,
+          })),
+
+        Projects: items
+          .filter(item => item.type === 'project')
+          .map(item => ({
+            ...item,
+            active: Number(item.status) === 1,
+          })),
+      });
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Unable to load items');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  // INITIAL LOAD
+  useEffect(() => {
+    const initialize = async () => {
+      const id = await getCompanyId();
+      if (id) {
+        await loadItems(id);
+      } else {
+        setLoading(false);
+      }
+    };
+
+    initialize();
+  }, []);
+
+  const currentItems = data[activeTab] || [];
+
+  const filteredItems = currentItems.filter(item =>
+    item.name?.toLowerCase().includes(search.toLowerCase()),
+  );
 
   const totalProducts = data.Products.length;
   const totalServices = data.Services.length;
   const totalProjects = data.Projects.length;
 
-  const filteredItems = currentItems.filter(item =>
-    item.name.toLowerCase().includes(search.toLowerCase()) ||
-    item.code.toLowerCase().includes(search.toLowerCase()) ||
-    item.category.toLowerCase().includes(search.toLowerCase())
-  );
-
   const formatPrice = value =>
     '₹ ' + Number(value || 0).toLocaleString('en-IN');
 
-  // ADD ITEM
+  // ADD MODAL
   const openAddModal = () => {
     setEditingId(null);
     setName('');
-    setCode('');
-    setCategory('');
     setPrice('');
     setModalVisible(true);
   };
 
-  // EDIT ITEM
+  // EDIT MODAL
   const openEditModal = item => {
-    setEditingId(item.id);
+    setEditingId(item.id.toString());
     setName(item.name);
-    setCode(item.code);
-    setCategory(item.category);
-    setPrice(item.price);
+    setPrice(item.price.toString());
     setModalVisible(true);
   };
 
   // SAVE ITEM
-  const saveItem = () => {
-    if (!name.trim() || !code.trim() || !category.trim() || !price.trim()) {
-      Alert.alert('Required', 'Please fill all fields.');
+  const saveItem = async () => {
+    if (!name.trim() || price.trim() === '') {
+      Alert.alert('Required', 'Please enter name and price.');
       return;
     }
 
-    if (isNaN(Number(price)) || Number(price) < 0) {
+    if (!Number.isFinite(Number(price)) || Number(price) < 0) {
       Alert.alert('Invalid Price', 'Please enter a valid price.');
       return;
     }
 
-    const newItem = {
-      id: editingId || Date.now().toString(),
-      name: name.trim(),
-      code: code.trim(),
-      category: category.trim(),
-      price: price.trim(),
-      active: true,
-    };
+    if (!companyId) {
+      Alert.alert('Error', 'Company ID not found. Please login again.');
+      return;
+    }
 
-    setData(previous => ({
-      ...previous,
-      [activeTab]: editingId
-        ? previous[activeTab].map(item =>
-            item.id === editingId ? {...item, ...newItem, active: item.active} : item
-          )
-        : [...previous[activeTab], newItem],
-    }));
+    try {
+      setSaving(true);
 
-    setModalVisible(false);
-    Alert.alert('Success', editingId ? 'Updated successfully.' : 'Added successfully.');
+      const formData = new FormData();
+
+      formData.append('action', editingId ? 'update' : 'add');
+      formData.append('company_id', companyId);
+      formData.append('name', name.trim());
+      formData.append('type', tabDetails[activeTab].type);
+      formData.append('price', price.trim());
+
+      if (editingId) {
+        formData.append('id', editingId);
+      }
+
+      const result = await apiRequest(formData);
+
+      setModalVisible(false);
+      setName('');
+      setPrice('');
+      setEditingId(null);
+
+      await loadItems();
+
+      Alert.alert(
+        'Success',
+        result.message ||
+          (editingId ? 'Updated successfully' : 'Added successfully'),
+      );
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Unable to save item');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // DELETE ITEM
@@ -147,15 +263,28 @@ export default function ProductsServicesProjects({navigation}) {
       'Delete Item',
       'Are you sure you want to delete this item?',
       [
-        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setData(previous => ({
-              ...previous,
-              [activeTab]: previous[activeTab].filter(item => item.id !== id),
-            }));
+          onPress: async () => {
+            try {
+              const formData = new FormData();
+              formData.append('action', 'delete');
+              formData.append('company_id', companyId);
+              formData.append('id', id.toString());
+
+              const result = await apiRequest(formData);
+
+              await loadItems();
+
+              Alert.alert('Success', result.message || 'Item deleted');
+            } catch (error) {
+              Alert.alert('Error', error.message || 'Unable to delete item');
+            }
           },
         },
       ],
@@ -163,18 +292,23 @@ export default function ProductsServicesProjects({navigation}) {
   };
 
   // ACTIVE / INACTIVE
-  const toggleStatus = id => {
-    setData(previous => ({
-      ...previous,
-      [activeTab]: previous[activeTab].map(item =>
-        item.id === id ? {...item, active: !item.active} : item
-      ),
-    }));
+  const toggleStatus = async item => {
+    try {
+      const formData = new FormData();
+      formData.append('action', 'toggle_status');
+      formData.append('company_id', companyId);
+      formData.append('id', item.id.toString());
+
+      await apiRequest(formData);
+      await loadItems();
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Unable to update status');
+    }
   };
 
+  // SUMMARY CARD
   const renderSummaryCard = (title, count, icon, color, bg) => (
     <View style={[styles.summaryCard, {backgroundColor: bg}]}>
-
       <View style={[styles.summaryIcon, {backgroundColor: color + '18'}]}>
         <Ionicons name={icon} size={27} color={color} />
       </View>
@@ -183,20 +317,17 @@ export default function ProductsServicesProjects({navigation}) {
         <Text style={styles.summaryTitle}>{title}</Text>
         <Text style={styles.summaryCount}>{count}</Text>
       </View>
-
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
       <StatusBar backgroundColor="#6322C9" barStyle="light-content" />
 
       {/* HEADER */}
       <LinearGradient
         colors={['#883CEB', '#5117B9']}
         style={styles.header}>
-
         <TouchableOpacity onPress={() => navigation?.goBack()}>
           <Ionicons name="arrow-back" size={25} color="#FFFFFF" />
         </TouchableOpacity>
@@ -205,30 +336,25 @@ export default function ProductsServicesProjects({navigation}) {
           Products / Services / Projects
         </Text>
 
-        <TouchableOpacity onPress={() => setSearch('')}>
-          <Ionicons name="search-outline" size={25} color="#FFFFFF" />
-        </TouchableOpacity>
-
       </LinearGradient>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}>
 
-        {/* PAGE HEADING */}
         <Text style={styles.pageHeading}>
           Add & Manage your Products, Services and Projects
         </Text>
 
         {/* SUMMARY */}
         <View style={styles.summaryRow}>
-
           {renderSummaryCard(
             'Products',
             totalProducts,
             'cube-outline',
             '#3979ED',
-            '#EFF1FF'
+            '#EFF1FF',
           )}
 
           {renderSummaryCard(
@@ -236,7 +362,7 @@ export default function ProductsServicesProjects({navigation}) {
             totalServices,
             'settings-outline',
             '#109B65',
-            '#E9FAF3'
+            '#E9FAF3',
           )}
 
           {renderSummaryCard(
@@ -244,14 +370,12 @@ export default function ProductsServicesProjects({navigation}) {
             totalProjects,
             'layers-outline',
             '#E04455',
-            '#FFF0F3'
+            '#FFF0F3',
           )}
-
         </View>
 
         {/* TABS */}
         <View style={styles.tabContainer}>
-
           {['Products', 'Services', 'Projects'].map(tab => {
             const selected = activeTab === tab;
 
@@ -263,20 +387,16 @@ export default function ProductsServicesProjects({navigation}) {
                   setActiveTab(tab);
                   setSearch('');
                 }}>
-
                 {selected ? (
                   <LinearGradient
                     colors={['#8739EB', '#5719C1']}
                     style={styles.activeTabGradient}>
-
                     <Ionicons
                       name={tabDetails[tab].icon}
                       size={23}
                       color="#FFFFFF"
                     />
-
                     <Text style={styles.activeTabText}>{tab}</Text>
-
                   </LinearGradient>
                 ) : (
                   <>
@@ -288,22 +408,19 @@ export default function ProductsServicesProjects({navigation}) {
                     <Text style={styles.tabText}>{tab}</Text>
                   </>
                 )}
-
               </TouchableOpacity>
             );
           })}
-
         </View>
 
         {/* SEARCH + ADD */}
         <View style={styles.searchRow}>
-
           <View style={styles.searchBox}>
             <Ionicons name="search-outline" size={23} color="#655B7B" />
 
             <TextInput
               style={styles.searchInput}
-              placeholder={`Search ${activeTab.toLowerCase()} by name or code`}
+              placeholder={`Search ${activeTab.toLowerCase()} by name`}
               placeholderTextColor="#88809E"
               value={search}
               onChangeText={setSearch}
@@ -320,23 +437,25 @@ export default function ProductsServicesProjects({navigation}) {
             style={styles.addButton}
             activeOpacity={0.85}
             onPress={openAddModal}>
-
             <LinearGradient
               colors={['#913EED', '#601CC7']}
               style={styles.addGradient}>
-
               <Ionicons name="add" size={25} color="#FFFFFF" />
-              <Text style={styles.addText}>Add {tabDetails[activeTab].singular}</Text>
-
+              <Text style={styles.addText}>
+                Add {tabDetails[activeTab].singular}
+              </Text>
             </LinearGradient>
           </TouchableOpacity>
-
         </View>
 
         {/* ITEM LIST */}
         <View style={styles.listContainer}>
-
-          {filteredItems.length === 0 ? (
+          {loading ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator size="large" color="#6824CB" />
+              <Text style={styles.loadingText}>Loading items...</Text>
+            </View>
+          ) : filteredItems.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="cube-outline" size={48} color="#BBA9DD" />
               <Text style={styles.emptyTitle}>No {activeTab} Found</Text>
@@ -347,14 +466,17 @@ export default function ProductsServicesProjects({navigation}) {
           ) : (
             filteredItems.map((item, index) => (
               <View
-                key={item.id}
+                key={item.id.toString()}
                 style={[
                   styles.itemRow,
                   index === filteredItems.length - 1 && styles.lastItem,
                 ]}>
-
                 {/* ITEM ICON */}
-                <View style={styles.itemImage}>
+                <View
+                  style={[
+                    styles.itemImage,
+                    {backgroundColor: tabDetails[activeTab].bg},
+                  ]}>
                   <Ionicons
                     name={tabDetails[activeTab].icon}
                     size={35}
@@ -362,26 +484,15 @@ export default function ProductsServicesProjects({navigation}) {
                   />
                 </View>
 
-                {/* ITEM DETAILS */}
+                {/* ITEM NAME */}
                 <View style={styles.itemInfo}>
-
                   <Text style={styles.itemName} numberOfLines={2}>
                     {item.name}
                   </Text>
-
-                  <Text style={styles.itemCode}>
-                    Code: {item.code}
-                  </Text>
-
-                  <Text style={styles.itemCategory}>
-                    Category: {item.category}
-                  </Text>
-
                 </View>
 
-                {/* PRICE AND STATUS */}
+                {/* PRICE + STATUS */}
                 <View style={styles.priceSection}>
-
                   <Text style={styles.price}>
                     {formatPrice(item.price)}
                   </Text>
@@ -389,92 +500,55 @@ export default function ProductsServicesProjects({navigation}) {
                   <TouchableOpacity
                     style={[
                       styles.statusBadge,
-                      {backgroundColor: item.active ? '#DFF5EA' : '#FFE7E9'},
+                      {
+                        backgroundColor: item.active ? '#DFF5EA' : '#FFE7E9',
+                      },
                     ]}
-                    onPress={() => toggleStatus(item.id)}>
-
-                    <Text style={[
-                      styles.statusText,
-                      {color: item.active ? '#0A9255' : '#D93440'},
-                    ]}>
+                    onPress={() => toggleStatus(item)}>
+                    <Text
+                      style={[
+                        styles.statusText,
+                        {
+                          color: item.active ? '#0A9255' : '#D93440',
+                        },
+                      ]}>
                       {item.active ? 'Active' : 'Inactive'}
                     </Text>
-
                   </TouchableOpacity>
-
                 </View>
 
-                {/* ACTION BUTTONS */}
+                {/* ACTIONS */}
                 <View style={styles.actions}>
-
                   <TouchableOpacity
                     style={styles.editButton}
                     onPress={() => openEditModal(item)}>
-                    <Ionicons name="create-outline" size={22} color="#6623CB" />
+                    <Ionicons
+                      name="create-outline"
+                      size={22}
+                      color="#6623CB"
+                    />
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={styles.deleteButton}
                     onPress={() => deleteItem(item.id)}>
-                    <Ionicons name="trash-outline" size={22} color="#E53945" />
+                    <Ionicons
+                      name="trash-outline"
+                      size={22}
+                      color="#E53945"
+                    />
                   </TouchableOpacity>
-
                 </View>
-
               </View>
             ))
           )}
-
         </View>
 
-        {/* BOTTOM BUILDINGS */}
-        <View style={styles.buildingSection}>
-
-          <View style={styles.buildingGroup}>
-
-            <View style={styles.buildingOne}>
-              <View style={styles.windows}>
-                {Array.from({length: 6}).map((_, i) => (
-                  <View key={i} style={styles.window} />
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.buildingTwo}>
-              <View style={styles.windows}>
-                {Array.from({length: 12}).map((_, i) => (
-                  <View key={i} style={styles.window} />
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.buildingThree}>
-              <View style={styles.windows}>
-                {Array.from({length: 8}).map((_, i) => (
-                  <View key={i} style={styles.window} />
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.buildingFour}>
-              <View style={styles.windows}>
-                {Array.from({length: 4}).map((_, i) => (
-                  <View key={i} style={styles.window} />
-                ))}
-              </View>
-            </View>
-
-          </View>
-
-          <View style={styles.groundLine} />
-
-        </View>
-
+        {/* BUILDINGS */}
       </ScrollView>
 
       {/* BOTTOM NAVIGATION */}
       <View style={styles.bottomNavigation}>
-
         {[
           {name: 'Dashboard', icon: 'home-outline', route: 'Dashboard'},
           {name: 'All Leads', icon: 'people-outline', route: 'AllLeads'},
@@ -486,7 +560,6 @@ export default function ProductsServicesProjects({navigation}) {
             key={item.name}
             style={styles.navItem}
             onPress={() => navigation?.navigate(item.route)}>
-
             {index === 2 ? (
               <LinearGradient
                 colors={['#8739EB', '#5719C1']}
@@ -500,7 +573,6 @@ export default function ProductsServicesProjects({navigation}) {
             <Text style={styles.navText}>{item.name}</Text>
           </TouchableOpacity>
         ))}
-
       </View>
 
       {/* ADD / EDIT MODAL */}
@@ -509,11 +581,9 @@ export default function ProductsServicesProjects({navigation}) {
         transparent
         animationType="slide"
         onRequestClose={() => setModalVisible(false)}>
-
         <KeyboardAvoidingView
           style={styles.modalBackground}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
@@ -521,11 +591,11 @@ export default function ProductsServicesProjects({navigation}) {
           />
 
           <View style={styles.modalContent}>
-
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>
-                  {editingId ? 'Edit' : 'Add'} {tabDetails[activeTab].singular}
+                  {editingId ? 'Edit' : 'Add'}{' '}
+                  {tabDetails[activeTab].singular}
                 </Text>
                 <Text style={styles.modalSubtitle}>
                   Enter {tabDetails[activeTab].singular.toLowerCase()} details
@@ -538,38 +608,18 @@ export default function ProductsServicesProjects({navigation}) {
             </View>
 
             <ScrollView keyboardShouldPersistTaps="handled">
-
               <View style={styles.modalInput}>
-                <Ionicons name="cube-outline" size={20} color="#77718A" />
+                <Ionicons
+                  name="cube-outline"
+                  size={20}
+                  color="#77718A"
+                />
                 <TextInput
                   style={styles.modalTextInput}
                   placeholder={`${tabDetails[activeTab].singular} Name`}
                   placeholderTextColor="#9994A5"
                   value={name}
                   onChangeText={setName}
-                />
-              </View>
-
-              <View style={styles.modalInput}>
-                <Ionicons name="barcode-outline" size={20} color="#77718A" />
-                <TextInput
-                  style={styles.modalTextInput}
-                  placeholder="Item Code"
-                  placeholderTextColor="#9994A5"
-                  value={code}
-                  onChangeText={setCode}
-                  autoCapitalize="characters"
-                />
-              </View>
-
-              <View style={styles.modalInput}>
-                <Ionicons name="list-outline" size={20} color="#77718A" />
-                <TextInput
-                  style={styles.modalTextInput}
-                  placeholder="Category"
-                  placeholderTextColor="#9994A5"
-                  value={category}
-                  onChangeText={setCategory}
                 />
               </View>
 
@@ -588,32 +638,37 @@ export default function ProductsServicesProjects({navigation}) {
               <TouchableOpacity
                 style={styles.saveButton}
                 onPress={saveItem}
+                disabled={saving}
                 activeOpacity={0.85}>
-
                 <LinearGradient
                   colors={['#8739EB', '#5719C1']}
                   style={styles.saveGradient}>
-
-                  <Ionicons name="checkmark-circle-outline" size={21} color="#FFFFFF" />
-                  <Text style={styles.saveText}>
-                    {editingId ? 'Update' : 'Save'} {tabDetails[activeTab].singular}
-                  </Text>
-
+                  {saving ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="checkmark-circle-outline"
+                        size={21}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.saveText}>
+                        {editingId ? 'Update' : 'Save'}{' '}
+                        {tabDetails[activeTab].singular}
+                      </Text>
+                    </>
+                  )}
                 </LinearGradient>
               </TouchableOpacity>
-
             </ScrollView>
-
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
     backgroundColor: '#F9F6FF',
@@ -649,7 +704,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  // SUMMARY CARDS
   summaryRow: {
     flexDirection: 'row',
     gap: 8,
@@ -690,7 +744,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // TABS
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
@@ -703,6 +756,7 @@ const styles = StyleSheet.create({
 
   tabButton: {
     flex: 1,
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -736,7 +790,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // SEARCH
   searchRow: {
     flexDirection: 'row',
     gap: 9,
@@ -784,7 +837,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  // LIST
   listContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 19,
@@ -795,6 +847,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 7,
     shadowOffset: {width: 0, height: 3},
+  },
+
+  loadingBox: {
+    paddingVertical: 45,
+    alignItems: 'center',
+  },
+
+  loadingText: {
+    color: '#655C7B',
+    marginTop: 10,
+    fontSize: 12,
   },
 
   itemRow: {
@@ -811,9 +874,8 @@ const styles = StyleSheet.create({
   },
 
   itemImage: {
-    width: 58,
-    height: 65,
-    backgroundColor: '#F0EAFF',
+    width: 50,
+    height: 58,
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
@@ -830,35 +892,23 @@ const styles = StyleSheet.create({
     color: '#21172F',
   },
 
-  itemCode: {
-    fontSize: 10,
-    color: '#605477',
-    marginTop: 5,
-  },
-
-  itemCategory: {
-    fontSize: 10,
-    color: '#605477',
-    marginTop: 4,
-  },
-
   priceSection: {
     alignItems: 'center',
     minWidth: 70,
   },
 
   price: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6221BD',
     fontWeight: '900',
   },
 
   statusBadge: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 15,
     marginTop: 8,
-    minWidth: 68,
+    minWidth: 65,
     alignItems: 'center',
   },
 
@@ -875,8 +925,8 @@ const styles = StyleSheet.create({
   },
 
   editButton: {
-    width: 37,
-    height: 39,
+    width: 35,
+    height: 37,
     borderWidth: 1,
     borderColor: '#D5C4F3',
     borderRadius: 10,
@@ -885,8 +935,8 @@ const styles = StyleSheet.create({
   },
 
   deleteButton: {
-    width: 37,
-    height: 39,
+    width: 35,
+    height: 37,
     borderWidth: 1,
     borderColor: '#FFC9C9',
     borderRadius: 10,
@@ -912,7 +962,6 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
-  // BUILDING
   buildingSection: {
     height: 145,
     marginHorizontal: -14,
@@ -980,7 +1029,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#CDB9F3',
   },
 
-  // BOTTOM NAVIGATION
   bottomNavigation: {
     height: 70,
     backgroundColor: '#FFFFFF',
@@ -1015,7 +1063,6 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 
-  // MODAL
   modalBackground: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -1092,5 +1139,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-
 });

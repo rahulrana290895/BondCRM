@@ -1,149 +1,174 @@
-
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  StatusBar,
-  Modal,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
+  View, Text, TextInput, TouchableOpacity, ScrollView,
+  StyleSheet, StatusBar, Modal, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
-
 import LinearGradient from 'react-native-linear-gradient';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-
-const products = [
-  'Website Development',
-  'App Development',
-  'Software Development',
-  'Digital Marketing',
-  'CRM Software',
-  'ERP Software',
-  'E-Commerce Website',
-];
-
-const stages = [
-  'New Lead',
-  'Contacted',
-  'Interested',
-  'Qualified',
-  'Meeting',
-  'Negotiation',
-  'Won',
-  'Lost',
-];
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {BASE_URL} from './config/config';
 
 const priorities = ['Low', 'Medium', 'High'];
-
 export default function AddLeadScreen({navigation, route}) {
-
   const editingLead = route?.params?.lead;
-  const isEdit = route?.params?.isEdit;
+  const isEdit = !!route?.params?.isEdit;
 
   const [leadName, setLeadName] = useState(editingLead?.name || '');
-  const [mobile, setMobile] = useState(editingLead?.phone || '');
-  const [email, setEmail] = useState(editingLead?.email || '');
-  const [company, setCompany] = useState(editingLead?.company || '');
-  const [product, setProduct] = useState(editingLead?.service || '');
-  const [stage, setStage] = useState(editingLead?.stage || 'New Lead');
-  const [leadValue, setLeadValue] = useState(editingLead?.value || '');
-  const [followUp, setFollowUp] = useState(editingLead?.date || '');
+  const [mobile, setMobile] = useState(editingLead?.number || editingLead?.phone || '');
+  const [whatsapp, setWhatsapp] = useState(editingLead?.whatsapp || '');
+  const [interestedIn, setInterestedIn] = useState(editingLead?.interested_in_name || editingLead?.interested_in || '');
+  const [interestedInId, setInterestedInId] = useState(
+    editingLead?.interested_in_id ? String(editingLead.interested_in_id) : 'NA',
+  );
   const [priority, setPriority] = useState(editingLead?.priority || 'Medium');
-  const [notes, setNotes] = useState('');
+  const [note, setNote] = useState(editingLead?.note || editingLead?.notes || '');
+
+  const [interestedOptions, setInterestedOptions] = useState([]);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [dropdownType, setDropdownType] = useState('');
   const [dropdownOptions, setDropdownOptions] = useState([]);
 
+  // FETCH COMPANY ITEMS
+  const fetchCompanyItems = async () => {
+    try {
+      setItemsLoading(true);
+
+      const companyId = await AsyncStorage.getItem('company_id');
+
+      if (!companyId) {
+        Alert.alert('Error', 'Company ID not found. Please login again.');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('company_id', companyId);
+
+      const response = await fetch(`${BASE_URL}/get_company_items.php`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        const options = [
+          {id: 'NA', name: 'N/A', type: 'na'},
+          ...(result.data || []).map(item => ({
+            id: String(item.id),
+            name: item.name,
+            type: item.type,
+          })),
+        ];
+
+        setInterestedOptions(options);
+
+        const selected = options.find(
+          item => item.id === String(editingLead?.interested_in_id || 'NA'),
+        );
+
+        if (selected) {
+          setInterestedIn(selected.name);
+          setInterestedInId(selected.id);
+        }
+      } else {
+        Alert.alert('Error', result.message || 'Unable to load items');
+      }
+    } catch (error) {
+      console.log('Items Error:', error);
+      Alert.alert('Connection Error', 'Unable to load company items');
+    } finally {
+      setItemsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCompanyItems();
+  }, []);
+
+  // DROPDOWN
   const openDropdown = (type, options) => {
     setDropdownType(type);
     setDropdownOptions(options);
     setDropdownVisible(true);
   };
 
-  const selectDropdown = value => {
-    if (dropdownType === 'product') setProduct(value);
-    if (dropdownType === 'stage') setStage(value);
-    if (dropdownType === 'priority') setPriority(value);
-
+  const selectDropdown = item => {
+    if (dropdownType === 'interested') {
+      setInterestedIn(item.name);
+      setInterestedInId(String(item.id));
+    } else {
+      setPriority(item);
+    }
     setDropdownVisible(false);
   };
 
-  const saveLead = () => {
-
-    if (!leadName.trim()) {
-      Alert.alert('Required', 'Please enter lead name.');
-      return;
+  // SAVE / UPDATE LEAD
+  const saveLead = async () => {
+    if (!leadName.trim() || !mobile.trim()) {
+      return Alert.alert('Required', 'Name and Number are required');
     }
 
-    if (!mobile.trim() || mobile.length !== 10) {
-      Alert.alert('Invalid Mobile', 'Please enter a valid 10 digit mobile number.');
-      return;
+
+    try {
+      setSaving(true);
+
+      const companyId = await AsyncStorage.getItem('company_id');
+
+      if (!companyId) {
+        Alert.alert('Error', 'Company ID not found. Please login again.');
+        return;
+      }
+
+      const response = await fetch(`${BASE_URL}/leads.php`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action: isEdit ? 'update' : 'add',
+          id: editingLead?.id,
+          company_id: companyId,
+          name: leadName.trim(),
+          number: mobile.trim(),
+          whatsapp: whatsapp.trim(),
+          interested_in_id: interestedInId || 'NA',
+          priority,
+          note: note.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        return Alert.alert('Error', result.message || 'Unable to save lead');
+      }
+
+      Alert.alert('Success', result.message || 'Lead saved successfully', [
+        {text: 'OK', onPress: () => navigation?.goBack()},
+      ]);
+    } catch (error) {
+      console.log('Save Lead Error:', error);
+      Alert.alert('Connection Error', 'Unable to connect to server');
+    } finally {
+      setSaving(false);
     }
-
-    if (!product) {
-      Alert.alert('Required', 'Please select product / service / project.');
-      return;
-    }
-
-    if (!stage) {
-      Alert.alert('Required', 'Please select pipeline stage.');
-      return;
-    }
-
-    const leadData = {
-      id: editingLead?.id || Date.now().toString(),
-      name: leadName.trim(),
-      phone: mobile,
-      email: email.trim(),
-      company: company.trim(),
-      service: product,
-      stage,
-      value: leadValue || '0',
-      date: followUp,
-      priority,
-      notes,
-    };
-
-    // Replace this with your PHP API POST request.
-    console.log('Lead Data:', leadData);
-
-    Alert.alert(
-      'Success',
-      isEdit ? 'Lead updated successfully.' : 'Lead added successfully.',
-      [
-        {
-          text: 'OK',
-          onPress: () => navigation?.goBack(),
-        },
-      ]
-    );
   };
 
+  // INPUT COMPONENT
   const renderInput = (
-    label,
-    icon,
-    placeholder,
-    value,
-    onChangeText,
-    keyboardType = 'default',
-    required = false
+    label, icon, placeholder, value, onChangeText,
+    keyboardType = 'default', required = false, maxLength,
   ) => (
     <View style={styles.fieldContainer}>
-
       <Text style={styles.label}>
-        {label} {required && <Text style={styles.required}>*</Text>}
+        {label}{required && <Text style={styles.required}> *</Text>}
       </Text>
 
       <View style={styles.inputBox}>
-        <Ionicons name={icon} size={21} color="#68528D" />
-
+        <Ionicons name={icon} size={20} color="#68528D" />
         <TextInput
           style={styles.input}
           placeholder={placeholder}
@@ -151,49 +176,48 @@ export default function AddLeadScreen({navigation, route}) {
           value={value}
           onChangeText={onChangeText}
           keyboardType={keyboardType}
+          maxLength={maxLength}
+          autoCapitalize="none"
         />
-
       </View>
     </View>
   );
 
-  const renderDropdown = (label, icon, value, placeholder, onPress, required = false) => (
+  // DROPDOWN COMPONENT
+  const renderDropdown = (
+    label, icon, value, placeholder, onPress, required = false, loading = false,
+  ) => (
     <View style={styles.fieldContainer}>
-
       <Text style={styles.label}>
-        {label} {required && <Text style={styles.required}>*</Text>}
+        {label}{required && <Text style={styles.required}> *</Text>}
       </Text>
 
       <TouchableOpacity
         style={styles.inputBox}
-        onPress={onPress}>
+        onPress={onPress}
+        activeOpacity={0.75}
+        disabled={loading}>
+        <Ionicons name={icon} size={20} color="#68528D" />
 
-        <Ionicons name={icon} size={21} color="#68528D" />
-
-        <Text
-          style={[
-            styles.dropdownText,
-            !value && {color: '#9288A5'},
-          ]}>
-          {value || placeholder}
+        <Text style={[styles.dropdownText, !value && styles.placeholderText]}>
+          {loading ? 'Loading items...' : value || placeholder}
         </Text>
 
-        <Ionicons name="chevron-down" size={21} color="#6425CC" />
-
+        {loading ? (
+          <ActivityIndicator size="small" color="#6425CC" />
+        ) : (
+          <Ionicons name="chevron-down" size={20} color="#6425CC" />
+        )}
       </TouchableOpacity>
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-
+    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
       <StatusBar backgroundColor="#6422C9" barStyle="light-content" />
 
       {/* HEADER */}
-      <LinearGradient
-        colors={['#8739EB', '#5018B9']}
-        style={styles.header}>
-
+      <LinearGradient colors={['#8739EB', '#5018B9']} style={styles.header}>
         <TouchableOpacity onPress={() => navigation?.goBack()}>
           <Ionicons name="arrow-back" size={25} color="#FFFFFF" />
         </TouchableOpacity>
@@ -203,247 +227,113 @@ export default function AddLeadScreen({navigation, route}) {
         </Text>
 
         <View style={{width: 25}} />
-
       </LinearGradient>
 
       <KeyboardAvoidingView
         style={{flex: 1}}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}>
 
           {/* INTRO CARD */}
-          <LinearGradient
-            colors={['#FFFFFF', '#F0E7FF']}
-            style={styles.introCard}>
-
+          <LinearGradient colors={['#FFFFFF', '#F0E7FF']} style={styles.introCard}>
             <View style={styles.introIcon}>
-              <Ionicons name="person-add" size={33} color="#FFFFFF" />
+              <Ionicons name="person-add" size={30} color="#FFFFFF" />
             </View>
 
             <View style={{flex: 1}}>
               <Text style={styles.introTitle}>Add New Lead</Text>
               <Text style={styles.introSubtitle}>
-                Capture lead details and add to your pipeline
+                Enter contact details and add the lead to your pipeline
               </Text>
             </View>
-
           </LinearGradient>
 
-          {/* FORM CARD */}
+          {/* FORM */}
           <View style={styles.formCard}>
-
-            {/* NAME + MOBILE */}
-            <View style={styles.twoColumns}>
-
-              <View style={styles.column}>
-                {renderInput(
-                  'Lead Name',
-                  'person-outline',
-                  'Enter lead name',
-                  leadName,
-                  setLeadName,
-                  'default',
-                  true
-                )}
-              </View>
-
-              <View style={styles.column}>
-                {renderInput(
-                  'Mobile Number',
-                  'call-outline',
-                  'Enter mobile number',
-                  mobile,
-                  value => setMobile(value.replace(/[^0-9]/g, '').slice(0, 10)),
-                  'phone-pad',
-                  true
-                )}
-              </View>
-
-            </View>
-
-            {/* EMAIL + COMPANY */}
-            <View style={styles.twoColumns}>
-
-              <View style={styles.column}>
-                {renderInput(
-                  'Email Address',
-                  'mail-outline',
-                  'Enter email address',
-                  email,
-                  setEmail,
-                  'email-address'
-                )}
-              </View>
-
-              <View style={styles.column}>
-                {renderInput(
-                  'Company / Organization',
-                  'business-outline',
-                  'Enter company name',
-                  company,
-                  setCompany
-                )}
-              </View>
-
-            </View>
-
-            {/* PRODUCT */}
-            {renderDropdown(
-              'Interested In (Product / Service / Project)',
-              'layers-outline',
-              product,
-              'Select product / service / project',
-              () => openDropdown('product', products),
-              true
+            {renderInput(
+              'Name', 'person-outline', 'Enter lead name',
+              leadName, setLeadName, 'default', true,
             )}
 
-            {/* STAGE + VALUE */}
-            <View style={styles.twoColumns}>
+            {renderInput(
+              'Number',
+              'call-outline',
+              'Enter mobile number (up to 15 digits)',
+              mobile,
+              value => setMobile(value.replace(/[^0-9]/g, '').slice(0, 15)),
+              'phone-pad',
+              true,
+              15,
+            )}
 
-              <View style={styles.column}>
-                {renderDropdown(
-                  'Pipeline Stage',
-                  'git-branch-outline',
-                  stage,
-                  'Select stage',
-                  () => openDropdown('stage', stages),
-                  true
-                )}
-              </View>
+            {renderInput(
+              'WhatsApp Number',
+              'logo-whatsapp',
+              'Enter WhatsApp number (up to 15 digits)',
+              whatsapp,
+              value => setWhatsapp(value.replace(/[^0-9]/g, '').slice(0, 15)),
+              'phone-pad',
+              false,
+              15,
+            )}
 
-              <View style={styles.column}>
-                {renderInput(
-                  'Lead Value (₹)',
-                  'cash-outline',
-                  'Enter lead value',
-                  leadValue,
-                  setLeadValue,
-                  'numeric'
-                )}
-              </View>
+            {renderDropdown(
+              'Interested In', 'layers-outline', interestedIn,
+              'Select product / service / project',
+              () => openDropdown('interested', interestedOptions),
+              true, itemsLoading,
+            )}
 
-            </View>
+            {renderDropdown(
+              'Priority', 'flag-outline', priority,
+              'Select priority',
+              () => openDropdown('priority', priorities),
+              true,
+            )}
 
-            {/* FOLLOW UP + PRIORITY */}
-            <View style={styles.twoColumns}>
-
-              <View style={styles.column}>
-                {renderInput(
-                  'Follow-up Date',
-                  'calendar-outline',
-                  'DD/MM/YYYY',
-                  followUp,
-                  setFollowUp
-                )}
-              </View>
-
-              <View style={styles.column}>
-                {renderDropdown(
-                  'Priority',
-                  'flag-outline',
-                  priority,
-                  'Select priority',
-                  () => openDropdown('priority', priorities)
-                )}
-              </View>
-
-            </View>
-
-            {/* NOTES */}
             <View style={styles.fieldContainer}>
-
-              <Text style={styles.label}>Notes / Description</Text>
-
+              <Text style={styles.label}>Note</Text>
               <View style={styles.notesBox}>
                 <TextInput
                   style={styles.notesInput}
-                  placeholder="Enter notes or additional details..."
+                  placeholder="Enter note or additional details..."
                   placeholderTextColor="#9288A5"
-                  value={notes}
-                  onChangeText={setNotes}
+                  value={note}
+                  onChangeText={setNote}
                   multiline
                   textAlignVertical="top"
                 />
               </View>
-
             </View>
 
             {/* SAVE BUTTON */}
             <TouchableOpacity
               style={styles.saveButton}
               onPress={saveLead}
-              activeOpacity={0.85}>
-
-              <LinearGradient
-                colors={['#913EED', '#5719C1']}
-                style={styles.saveGradient}>
-
-                <Ionicons name="save-outline" size={24} color="#FFFFFF" />
-
-                <Text style={styles.saveText}>
-                  {isEdit ? 'Update Lead' : 'Save Lead'}
-                </Text>
-
+              activeOpacity={0.85}
+              disabled={saving}>
+              <LinearGradient colors={['#913EED', '#5719C1']} style={styles.saveGradient}>
+                {saving ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="save-outline" size={22} color="#FFFFFF" />
+                    <Text style={styles.saveText}>
+                      {isEdit ? 'Update Lead' : 'Save Lead'}
+                    </Text>
+                  </>
+                )}
               </LinearGradient>
-
             </TouchableOpacity>
-
           </View>
-
-          {/* BUILDING */}
-          <View style={styles.buildingSection}>
-
-            <View style={styles.buildingGroup}>
-
-              <View style={styles.buildingOne}>
-                <View style={styles.windows}>
-                  {Array.from({length: 6}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.buildingTwo}>
-                <View style={styles.windows}>
-                  {Array.from({length: 12}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.buildingThree}>
-                <View style={styles.windows}>
-                  {Array.from({length: 8}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.buildingFour}>
-                <View style={styles.windows}>
-                  {Array.from({length: 4}).map((_, i) => (
-                    <View key={i} style={styles.window} />
-                  ))}
-                </View>
-              </View>
-
-            </View>
-
-            <View style={styles.groundLine} />
-
-          </View>
-
         </ScrollView>
-
       </KeyboardAvoidingView>
 
       {/* BOTTOM NAVIGATION */}
       <View style={styles.bottomNavigation}>
-
         {[
           {name: 'Dashboard', icon: 'home-outline', route: 'Dashboard'},
           {name: 'All Leads', icon: 'people-outline', route: 'AllLeads'},
@@ -451,38 +341,23 @@ export default function AddLeadScreen({navigation, route}) {
           {name: 'Pipeline', icon: 'git-branch-outline', route: 'LeadPipeline'},
           {name: 'Follow Up', icon: 'calendar-outline', route: 'FollowUp'},
         ].map((item, index) => (
-
           <TouchableOpacity
             key={item.name}
             style={styles.navItem}
             onPress={() => navigation?.navigate(item.route)}>
-
             {index === 2 ? (
-              <LinearGradient
-                colors={['#8739EB', '#5719C1']}
-                style={styles.addNavButton}>
+              <LinearGradient colors={['#8739EB', '#5719C1']} style={styles.addNavButton}>
                 <Ionicons name="add" size={29} color="#FFFFFF" />
               </LinearGradient>
             ) : (
-              <Ionicons
-                name={item.icon}
-                size={22}
-                color="#655C7B"
-              />
+              <Ionicons name={item.icon} size={22} color="#655C7B" />
             )}
 
-            <Text
-              style={[
-                styles.navText,
-                index === 2 && styles.activeNavText,
-              ]}>
+            <Text style={[styles.navText, index === 2 && styles.activeNavText]}>
               {item.name}
             </Text>
-
           </TouchableOpacity>
-
         ))}
-
       </View>
 
       {/* DROPDOWN MODAL */}
@@ -491,9 +366,7 @@ export default function AddLeadScreen({navigation, route}) {
         transparent
         animationType="fade"
         onRequestClose={() => setDropdownVisible(false)}>
-
         <View style={styles.modalBackground}>
-
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
@@ -501,14 +374,9 @@ export default function AddLeadScreen({navigation, route}) {
           />
 
           <View style={styles.dropdownModal}>
-
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                Select {dropdownType === 'product'
-                  ? 'Product / Service'
-                  : dropdownType === 'stage'
-                  ? 'Pipeline Stage'
-                  : 'Priority'}
+                Select {dropdownType === 'interested' ? 'Interested In' : 'Priority'}
               </Text>
 
               <TouchableOpacity onPress={() => setDropdownVisible(false)}>
@@ -516,359 +384,182 @@ export default function AddLeadScreen({navigation, route}) {
               </TouchableOpacity>
             </View>
 
-            {dropdownOptions.map(item => (
+            <ScrollView>
+              {dropdownOptions.map(item => {
+                const itemName = dropdownType === 'interested' ? item.name : item;
+                const itemKey = dropdownType === 'interested' ? item.id : item;
+                const selected = dropdownType === 'interested'
+                  ? interestedInId === String(item.id)
+                  : priority === item;
 
-              <TouchableOpacity
-                key={item}
-                style={styles.dropdownOption}
-                onPress={() => selectDropdown(item)}>
+                return (
+                  <TouchableOpacity
+                    key={itemKey}
+                    style={styles.dropdownOption}
+                    onPress={() => selectDropdown(item)}>
+                    <View style={{flex: 1}}>
+                      <Text style={styles.dropdownOptionText}>{itemName}</Text>
+                      {dropdownType === 'interested' && item.type !== 'na' && (
+                        <Text style={styles.itemType}>{item.type}</Text>
+                      )}
+                    </View>
 
-                <Text style={styles.dropdownOptionText}>{item}</Text>
+                    <Ionicons
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={21}
+                      color="#6825CB"
+                    />
+                  </TouchableOpacity>
+                );
+              })}
 
-                <Ionicons
-                  name={
-                    (dropdownType === 'product' && product === item) ||
-                    (dropdownType === 'stage' && stage === item) ||
-                    (dropdownType === 'priority' && priority === item)
-                      ? 'radio-button-on'
-                      : 'radio-button-off'
-                  }
-                  size={21}
-                  color="#6825CB"
-                />
-
-              </TouchableOpacity>
-
-            ))}
-
+              {dropdownOptions.length === 0 && (
+                <Text style={styles.emptyText}>No items available.</Text>
+              )}
+            </ScrollView>
           </View>
-
         </View>
-
       </Modal>
-
     </SafeAreaView>
   );
 }
 
+// STYLES
 const styles = StyleSheet.create({
-
-  container: {
-    flex: 1,
-    backgroundColor: '#F9F6FF',
-  },
+  container: {flex: 1, backgroundColor: '#F9F6FF'},
 
   header: {
-    height: 62,
-    paddingHorizontal: 17,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    height: 62, paddingHorizontal: 17, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'space-between',
   },
 
   headerTitle: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 19,
-    fontWeight: '800',
-    textAlign: 'center',
+    flex: 1, color: '#FFFFFF', fontSize: 19,
+    fontWeight: '800', textAlign: 'center',
   },
 
-  scrollContent: {
-    paddingHorizontal: 15,
-    paddingTop: 15,
-    paddingBottom: 10,
-  },
+  scrollContent: {paddingHorizontal: 15, paddingTop: 15, paddingBottom: 18},
 
-  // INTRO
   introCard: {
-    minHeight: 105,
-    borderRadius: 17,
-    padding: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 13,
-    marginBottom: 17,
-    borderWidth: 1,
-    borderColor: '#E8DCFF',
+    minHeight: 100, borderRadius: 17, padding: 15,
+    flexDirection: 'row', alignItems: 'center', gap: 13,
+    marginBottom: 17, borderWidth: 1, borderColor: '#E8DCFF',
   },
 
   introIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 35,
-    backgroundColor: '#8539E6',
-    alignItems: 'center',
+    width: 58, height: 58, borderRadius: 30,
+    backgroundColor: '#8539E6', alignItems: 'center',
     justifyContent: 'center',
   },
 
-  introTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#35117F',
-  },
+  introTitle: {fontSize: 18, fontWeight: '900', color: '#35117F'},
 
   introSubtitle: {
-    fontSize: 11,
-    color: '#725A99',
-    marginTop: 5,
+    fontSize: 12, color: '#725A99', marginTop: 5, lineHeight: 17,
   },
 
-  // FORM
   formCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 13,
-    elevation: 2,
-    shadowColor: '#62419A',
-    shadowOpacity: 0.05,
+    backgroundColor: '#FFFFFF', borderRadius: 18, padding: 15,
+    elevation: 2, shadowColor: '#62419A', shadowOpacity: 0.05,
     shadowRadius: 6,
   },
 
-  twoColumns: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-
-  column: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  fieldContainer: {
-    flex: 1,
-    marginBottom: 16,
-  },
+  fieldContainer: {marginBottom: 16},
 
   label: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#35117F',
-    marginBottom: 8,
+    fontSize: 13, fontWeight: '800', color: '#35117F', marginBottom: 8,
   },
 
-  required: {
-    color: '#EF365A',
-  },
+  required: {color: '#EF365A'},
 
   inputBox: {
-    height: 49,
-    borderWidth: 1,
-    borderColor: '#BCA2E9',
-    borderRadius: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 9,
-    gap: 7,
-    backgroundColor: '#FFFEFF',
+    minHeight: 50, borderWidth: 1, borderColor: '#BCA2E9',
+    borderRadius: 11, flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, gap: 9, backgroundColor: '#FFFEFF',
   },
 
   input: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 11,
-    color: '#30234C',
-    paddingVertical: 0,
+    flex: 1, minWidth: 0, fontSize: 14,
+    color: '#30234C', paddingVertical: 10,
   },
 
   dropdownText: {
-    flex: 1,
-    fontSize: 11,
-    color: '#49376B',
+    flex: 1, fontSize: 14, color: '#49376B', paddingVertical: 14,
   },
 
-  // NOTES
+  placeholderText: {color: '#9288A5'},
+
   notesBox: {
-    height: 95,
-    borderWidth: 1,
-    borderColor: '#BCA2E9',
-    borderRadius: 11,
-    padding: 11,
+    minHeight: 105, borderWidth: 1,
+    borderColor: '#BCA2E9', borderRadius: 11, padding: 11,
   },
 
-  notesInput: {
-    flex: 1,
-    fontSize: 12,
-    color: '#30234C',
-  },
+  notesInput: {minHeight: 80, fontSize: 14, color: '#30234C'},
 
-  // SAVE
   saveButton: {
-    height: 54,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginTop: 3,
-    marginBottom: 5,
+    height: 54, borderRadius: 12, overflow: 'hidden',
+    marginTop: 3, marginBottom: 5,
   },
 
   saveGradient: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 10,
   },
 
-  saveText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-  },
+  saveText: {color: '#FFFFFF', fontSize: 16, fontWeight: '900'},
 
-  // BUILDING
-  buildingSection: {
-    height: 115,
-    marginHorizontal: -15,
-    marginTop: 22,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: '#F0E9FF',
-    overflow: 'hidden',
-  },
-
-  buildingGroup: {
-    width: '85%',
-    height: '95%',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 8,
-  },
-
-  buildingOne: {
-    width: '18%',
-    height: '60%',
-    backgroundColor: '#DCD0FC',
-    padding: 6,
-  },
-
-  buildingTwo: {
-    width: '23%',
-    height: '100%',
-    backgroundColor: '#CFC0FB',
-    padding: 8,
-  },
-
-  buildingThree: {
-    width: '20%',
-    height: '72%',
-    backgroundColor: '#DAD0FC',
-    padding: 7,
-  },
-
-  buildingFour: {
-    width: '17%',
-    height: '50%',
-    backgroundColor: '#E1D7FC',
-    padding: 6,
-  },
-
-  windows: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around',
-    gap: 7,
-  },
-
-  window: {
-    width: 8,
-    height: 9,
-    backgroundColor: '#F0E9FF',
-    borderRadius: 2,
-  },
-
-  groundLine: {
-    width: '100%',
-    height: 2,
-    backgroundColor: '#C8B7F1',
-  },
-
-  // BOTTOM NAV
   bottomNavigation: {
-    height: 70,
-    backgroundColor: '#FFFFFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    borderTopWidth: 1,
-    borderTopColor: '#EEE9F5',
-    paddingHorizontal: 4,
+    height: 70, backgroundColor: '#FFFFFF', flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'space-around',
+    borderTopWidth: 1, borderTopColor: '#EEE9F5', paddingHorizontal: 4,
   },
 
   navItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
+    flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4,
   },
 
-  navText: {
-    fontSize: 9,
-    color: '#817A90',
-    fontWeight: '500',
-  },
+  navText: {fontSize: 9, color: '#817A90', fontWeight: '500'},
 
-  activeNavText: {
-    color: '#6825CB',
-    fontWeight: '800',
-  },
+  activeNavText: {color: '#6825CB', fontWeight: '800'},
 
   addNavButton: {
-    width: 43,
-    height: 43,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -19,
-    elevation: 5,
+    width: 43, height: 43, borderRadius: 25,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: -19, elevation: 5,
   },
 
-  // MODAL
   modalBackground: {
-    flex: 1,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(25,10,55,0.4)',
-    padding: 20,
+    flex: 1, justifyContent: 'center',
+    backgroundColor: 'rgba(25,10,55,0.4)', padding: 20,
   },
 
-  modalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
+  modalOverlay: {...StyleSheet.absoluteFillObject},
 
   dropdownModal: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 17,
-    maxHeight: '75%',
+    backgroundColor: '#FFFFFF', borderRadius: 18,
+    padding: 17, maxHeight: '75%',
   },
 
   modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 12,
   },
 
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#35117F',
-  },
+  modalTitle: {fontSize: 17, fontWeight: '900', color: '#35117F'},
 
   dropdownOption: {
-    minHeight: 49,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0EBF6',
-    paddingVertical: 10,
+    minHeight: 49, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', borderBottomWidth: 1,
+    borderBottomColor: '#F0EBF6', paddingVertical: 10,
   },
 
-  dropdownOptionText: {
-    fontSize: 13,
-    color: '#45345F',
-    fontWeight: '600',
+  dropdownOptionText: {fontSize: 14, color: '#45345F', fontWeight: '600'},
+
+  itemType: {
+    fontSize: 11, color: '#9288A5', marginTop: 3, textTransform: 'capitalize',
   },
 
+  emptyText: {
+    fontSize: 13, color: '#9288A5', textAlign: 'center', padding: 20,
+  },
 });
