@@ -17,7 +17,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {BASE_URL} from './config/config';
 
-const API_URL = `${BASE_URL.replace(/\/+$/, '')}/more_company.php`;
+const API_URL = `${BASE_URL}more_company.php`;
 
 const menuItems = [
   {
@@ -214,7 +214,7 @@ export default function MoreScreen({navigation}) {
   };
 
   return (
-    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container}   edges={['top']}>
       <StatusBar
         backgroundColor="#5520C6"
         barStyle="light-content"
@@ -429,69 +429,6 @@ export default function MoreScreen({navigation}) {
 
       </ScrollView>
 
-      {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNavigation}>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation?.navigate('Dashboard')}>
-          <Ionicons
-            name="grid-outline"
-            size={22}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>Dashboard</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation?.navigate('AllLeads')}>
-          <Ionicons
-            name="people-outline"
-            size={22}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>All Leads</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.addNavItem}
-          onPress={() => navigation?.navigate('AddLead')}>
-          <LinearGradient
-            colors={['#8239EC', '#5017BC']}
-            style={styles.addNavButton}>
-            <Ionicons
-              name="add"
-              size={30}
-              color="#FFFFFF"
-            />
-          </LinearGradient>
-          <Text style={styles.navText}>Add Lead</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation?.navigate('LeadPipeline')}>
-          <Ionicons
-            name="git-branch-outline"
-            size={22}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>Pipeline</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation?.navigate('FollowUp')}>
-          <Ionicons
-            name="calendar-outline"
-            size={22}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>Follow Up</Text>
-        </TouchableOpacity>
-
-      </View>
 
     </SafeAreaView>
   );

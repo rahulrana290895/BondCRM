@@ -276,7 +276,7 @@ export default function AllLeadsScreen({navigation}) {
   );
 
   return (
-    <SafeAreaView style={styles.container}   edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar backgroundColor="#6422C9" barStyle="light-content" />
 
       {/* HEADER */}

@@ -149,7 +149,7 @@ export default function CompanyRegistration({navigation, route}) {
               onPress: () => {
                 navigation.reset({
                   index: 0,
-                  routes: [{name: 'Dashboard'}],
+                  routes: [{name: 'MainTabs'}],
                 });
               },
             },

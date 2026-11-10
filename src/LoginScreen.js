@@ -53,28 +53,21 @@ const handleLogin = async () => {
       method: 'POST',
       body: formData,
     });
-
-    console.warn('HTTP STATUS:', response.status);
-
     const text = await response.text();
-    console.warn('SERVER RESPONSE:', text);
-
     const result = JSON.parse(text);
 
     if (result.success === true) {
       const user = result.data;
-
-      await AsyncStorage.setItem('@bondcrm_user', JSON.stringify(user));
+    await AsyncStorage.setItem('@bondcrm_user', JSON.stringify(user));
       await AsyncStorage.setItem('id', String(user.id));
       await AsyncStorage.setItem('company_id', String(user.company_id));
-      await AsyncStorage.setItem('name', userData.name);
-      await AsyncStorage.setItem('designation', userData.designation);
-      await AsyncStorage.setItem('role', userData.role);
+      await AsyncStorage.setItem('name', user.name);
+      await AsyncStorage.setItem('designation', user.designation);
+      await AsyncStorage.setItem('role', user.role);
       await AsyncStorage.setItem('isLoggedIn', 'true');
-
       navigation.reset({
         index: 0,
-        routes: [{name: 'Dashboard'}],
+        routes: [{name: 'MainTabs'}],
       });
     }
 

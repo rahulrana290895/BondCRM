@@ -321,7 +321,7 @@ export default function ProductsServicesProjects({navigation}) {
   );
 
   return (
-    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container}   edges={['top']}>
       <StatusBar backgroundColor="#6322C9" barStyle="light-content" />
 
       {/* HEADER */}
@@ -547,33 +547,7 @@ export default function ProductsServicesProjects({navigation}) {
         {/* BUILDINGS */}
       </ScrollView>
 
-      {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNavigation}>
-        {[
-          {name: 'Dashboard', icon: 'home-outline', route: 'Dashboard'},
-          {name: 'All Leads', icon: 'people-outline', route: 'AllLeads'},
-          {name: 'Add Lead', icon: 'add', route: 'AddLead'},
-          {name: 'Pipeline', icon: 'git-branch-outline', route: 'LeadPipeline'},
-          {name: 'Follow Up', icon: 'calendar-outline', route: 'FollowUp'},
-        ].map((item, index) => (
-          <TouchableOpacity
-            key={item.name}
-            style={styles.navItem}
-            onPress={() => navigation?.navigate(item.route)}>
-            {index === 2 ? (
-              <LinearGradient
-                colors={['#8739EB', '#5719C1']}
-                style={styles.addNavButton}>
-                <Ionicons name="add" size={29} color="#FFFFFF" />
-              </LinearGradient>
-            ) : (
-              <Ionicons name={item.icon} size={23} color="#655C7B" />
-            )}
 
-            <Text style={styles.navText}>{item.name}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
 
       {/* ADD / EDIT MODAL */}
       <Modal

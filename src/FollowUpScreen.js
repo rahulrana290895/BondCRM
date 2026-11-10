@@ -259,7 +259,7 @@ export default function FollowUpScreen({navigation}) {
   };
 
   return (
-    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container}   edges={['top']}>
       <StatusBar backgroundColor="#6425C8" barStyle="light-content" />
 
       <LinearGradient
@@ -373,91 +373,9 @@ export default function FollowUpScreen({navigation}) {
         )}
 
         {/* Building Illustration */}
-        <View style={styles.buildingArea}>
-          <View style={styles.buildingOne}>
-            <View style={styles.buildingWindowRow}>
-              <View style={styles.window} />
-              <View style={styles.window} />
-            </View>
-            <View style={styles.buildingWindowRow}>
-              <View style={styles.window} />
-              <View style={styles.window} />
-            </View>
-          </View>
-          <View style={styles.buildingTwo}>
-            <View style={styles.buildingWindowRow}>
-              <View style={styles.window} />
-              <View style={styles.window} />
-            </View>
-            <View style={styles.buildingWindowRow}>
-              <View style={styles.window} />
-              <View style={styles.window} />
-            </View>
-            <View style={styles.buildingWindowRow}>
-              <View style={styles.window} />
-              <View style={styles.window} />
-            </View>
-          </View>
-          <View style={styles.buildingThree}>
-            <View style={styles.buildingWindowRow}>
-              <View style={styles.window} />
-              <View style={styles.window} />
-            </View>
-            <View style={styles.buildingWindowRow}>
-              <View style={styles.window} />
-              <View style={styles.window} />
-            </View>
-          </View>
-        </View>
         <Text style={styles.footerText}>BondCRM • Grow Your Business</Text>
       </ScrollView>
 
-      {/* Bottom Navigation */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigate('Dashboard')}>
-          <Ionicons name="home-outline" size={22} color="#9991A8" />
-          <Text style={styles.navText}>Dashboard</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigate('AllLeads')}>
-          <Ionicons name="people-outline" size={22} color="#9991A8" />
-          <Text style={styles.navText}>All Leads</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.addNavItem}
-          onPress={() => navigate('AddLead')}>
-          <LinearGradient
-            colors={['#8739EB', '#5719B9']}
-            style={styles.addNavCircle}>
-            <Ionicons name="add" size={30} color="#FFFFFF" />
-          </LinearGradient>
-          <Text style={styles.navText}>Add Lead</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigate('LeadPipeline')}>
-          <Ionicons name="git-branch-outline" size={22} color="#9991A8" />
-          <Text style={styles.navText}>Pipeline</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigate('FollowUp')}>
-          <Ionicons
-            name="calendar-outline"
-            size={23}
-            color="#817A90"
-          />
-          <Text style={styles.navText}>Follow Up</Text>
-        </TouchableOpacity>
-
-      </View>
 
       {/* Reschedule Modal */}
       <Modal

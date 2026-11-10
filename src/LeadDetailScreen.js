@@ -201,7 +201,7 @@ export default function LeadDetailScreen({navigation, route}) {
   );
 
   return (
-    <SafeAreaView style={styles.container}   edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container}   edges={['top']}>
       <StatusBar backgroundColor="#6425C8" barStyle="light-content" />
 
       {/* HEADER */}
@@ -281,44 +281,6 @@ export default function LeadDetailScreen({navigation, route}) {
         {/* BUILDING DECORATION */}
       </ScrollView>
 
-      {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNav}>
-        <NavItem
-          icon="home-outline"
-          label="Dashboard"
-          onPress={() => navigation.navigate('Dashboard')}
-        />
-
-        <NavItem
-          icon="people-outline"
-          label="All Leads"
-          onPress={() => navigation.navigate('AllLeads')}
-        />
-
-        <TouchableOpacity
-          style={styles.addNavItem}
-          onPress={() => navigation.navigate('AddLead')}>
-          <LinearGradient
-            colors={['#8739EB', '#5719B9']}
-            style={styles.addNavCircle}>
-            <Ionicons name="add" size={30} color="#FFFFFF" />
-          </LinearGradient>
-
-          <Text style={styles.navText}>Add Lead</Text>
-        </TouchableOpacity>
-
-        <NavItem
-          icon="git-branch-outline"
-          label="Pipeline"
-          onPress={() => navigation.navigate('LeadPipeline')}
-        />
-
-        <NavItem
-          icon="calendar-outline"
-          label="Follow Up"
-          onPress={() => navigation.navigate('FollowUp')}
-        />
-      </View>
     </SafeAreaView>
   );
 }
